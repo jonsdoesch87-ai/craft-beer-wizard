@@ -1,0 +1,633 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RecipeCard } from "@/components/RecipeCard";
+import { ArrowLeft, ArrowRight, Check, Loader2, Info, Beaker, Settings2, ShoppingBasket } from "lucide-react";
+
+// --- Types & Interfaces ---
+type Expertise = "beginner" | "intermediate" | "expert" | "";
+type Equipment = "pot" | "all-in-one" | "professional" | "";
+
+interface WizardData {
+  expertise: Expertise;
+  equipment: Equipment;
+  beerStyle: string;
+  flavorProfile: string;
+  units: "metric" | "imperial";
+  batchSize: number;
+  targetABV?: number | "auto";
+  targetIBU?: number | "auto";
+  targetEBC?: number | "auto";
+  ingredientsInStock?: string;
+  useWhirlpool: boolean;
+  useFruit: boolean;
+  useIrishMoss: boolean;
+  useAscorbicAcid: boolean;
+  useLactose: boolean;
+  useDryHop: boolean;
+}
+
+const BEER_STYLES = [
+  "IPA (India Pale Ale)",
+  "Stout",
+  "Porter",
+  "Pilsner",
+  "Lager",
+  "Wheat Beer",
+  "Pale Ale",
+  "Amber Ale",
+  "Brown Ale",
+  "Belgian Ale",
+  "Sour Beer",
+  "Barleywine",
+];
+
+interface GeneratedRecipe {
+  name: string;
+  specs?: any;
+  originalGravity?: string;
+  finalGravity?: string;
+  abv?: string;
+  ibu?: string;
+  srm?: string;
+  ingredients?: any;
+  malts?: any;
+  hops?: any;
+  yeast?: any;
+  mash_steps?: any;
+  mash_schedule?: any;
+  boil_instructions?: string[];
+  fermentation_instructions?: string[];
+  shopping_list?: any;
+  estimatedTime: string;
+  notes: string;
+}
+
+export default function WizardPage() {
+  const [currentStep, setCurrentStep] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [generatedRecipe, setGeneratedRecipe] = useState<GeneratedRecipe | null>(null);
+
+  const [formData, setFormData] = useState<WizardData>({
+    expertise: "",
+    equipment: "",
+    beerStyle: "",
+    flavorProfile: "",
+    units: "metric",
+    batchSize: 20,
+    targetABV: "auto",
+    targetIBU: "auto",
+    targetEBC: "auto",
+    ingredientsInStock: "",
+    useWhirlpool: false,
+    useFruit: false,
+    useIrishMoss: false,
+    useAscorbicAcid: false,
+    useLactose: false,
+    useDryHop: false,
+  });
+
+  const updateData = (field: keyof WizardData, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Validierung für 3 Schritte
+  const canProceed = () => {
+    switch (currentStep) {
+      case 1: // Setup
+        return formData.expertise !== "" && formData.equipment !== "";
+      case 2: // The Big Form
+        return formData.beerStyle !== "" && formData.flavorProfile.trim() !== "" && formData.batchSize > 0;
+      default:
+        return true;
+    }
+  };
+
+  const nextStep = () => {
+    if (canProceed() && currentStep < 3) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const prevStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!canProceed()) {
+      alert("Please fill in all required fields.");
+      return;
+    }
+
+    setIsLoading(true);
+    setCurrentStep(3);
+
+    try {
+      const response = await fetch("/api/generate-recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.recipe) {
+        setGeneratedRecipe(result.recipe);
+      } else {
+        alert(`Failed: ${result.message}`);
+        setCurrentStep(2);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Error generating recipe.");
+      setCurrentStep(2);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const StepIndicator = () => (
+    <div className="mb-8 flex items-center justify-center gap-2">
+      {[1, 2, 3].map((step) => (
+        <div key={step} className="flex items-center">
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors ${
+              step === currentStep
+                ? "border-primary bg-transparent text-primary"
+                : step < currentStep
+                  ? "border-[#4CBB17] bg-[#4CBB17] text-white"
+                  : "border-muted bg-transparent text-muted-foreground"
+            }`}
+          >
+            {step < currentStep ? (
+              <Check className="h-5 w-5" />
+            ) : (
+              <span className="text-sm font-semibold">{step}</span>
+            )}
+          </div>
+          {step < 3 && (
+            <div
+              className={`h-1 w-12 transition-colors ${
+                step < currentStep ? "bg-[#4CBB17]" : "bg-muted"
+              }`}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl">
+        <Link href="/">
+          <Button variant="ghost" className="mb-6">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Home
+          </Button>
+        </Link>
+
+        <Card className="mb-8 shadow-lg border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-2xl sm:text-3xl text-[#FFBF00]">The Brew Wizard</CardTitle>
+            <CardDescription>Create your custom recipe in 3 simple steps</CardDescription>
+          </CardHeader>
+          <CardContent className="px-4 sm:px-6">
+            <StepIndicator />
+
+            {/* --- STEP 1: SETUP --- */}
+            {currentStep === 1 && (
+              <div className="space-y-6 max-w-lg mx-auto">
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-semibold">Let's set up your profile</h2>
+                  <p className="text-muted-foreground text-sm">This helps us tailor the difficulty and efficiency.</p>
+                </div>
+
+                <div>
+                  <Label className="mb-2 block text-base">Expertise Level</Label>
+                  <Select
+                    value={formData.expertise}
+                    onValueChange={(v) => updateData("expertise", v as Expertise)}
+                  >
+                    <SelectTrigger className="h-12 text-base">
+                      <SelectValue placeholder="Select Level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="beginner">Beginner</SelectItem>
+                      <SelectItem value="intermediate">Intermediate</SelectItem>
+                      <SelectItem value="expert">Expert</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {formData.expertise === "beginner" && (
+                    <p className="mt-2 text-xs text-muted-foreground flex gap-1">
+                      <Info className="h-3 w-3" /> Easy steps, dry yeast, safe results.
+                    </p>
+                  )}
+                  {formData.expertise === "expert" && (
+                    <p className="mt-2 text-xs text-[#FFBF00] flex gap-1">
+                      <Info className="h-3 w-3" /> Full control over water, yeast & process.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="mb-2 block text-base">Equipment Profile</Label>
+                  <Select
+                    value={formData.equipment}
+                    onValueChange={(v) => updateData("equipment", v as Equipment)}
+                  >
+                    <SelectTrigger className="h-12 text-base">
+                      <SelectValue placeholder="Select Equipment" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pot">Pot / BIAB</SelectItem>
+                      <SelectItem value="all-in-one">All-in-One System</SelectItem>
+                      <SelectItem value="professional">Professional Setup</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {formData.equipment === "pot" && (
+                    <p className="mt-2 text-xs text-muted-foreground flex gap-1">
+                      <Info className="h-3 w-3" /> Adjusted for 65% efficiency.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* --- STEP 2: THE RECIPE --- */}
+            {currentStep === 2 && (
+              <div className="space-y-8">
+                {/* Section A: Core Style */}
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-lg font-semibold text-primary">
+                      <Beaker className="h-5 w-5" /> <span>Core Definition</span>
+                    </div>
+                    <div>
+                      <Label className="mb-1.5 block">Beer Style</Label>
+                      <Select
+                        value={formData.beerStyle}
+                        onValueChange={(v) => updateData("beerStyle", v)}
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="Select Style" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BEER_STYLES.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="mb-1.5 block">Batch Size ({formData.units})</Label>
+                      <div className="flex gap-4">
+                        <Input
+                          type="number"
+                          value={formData.batchSize}
+                          onChange={(e) => updateData("batchSize", parseFloat(e.target.value) || 0)}
+                          className="h-11"
+                        />
+                        <div className="flex items-center gap-2 border rounded-md px-3 bg-muted/20">
+                          <Label htmlFor="unit-switch" className="text-xs cursor-pointer">
+                            Metric
+                          </Label>
+                          <Switch
+                            id="unit-switch"
+                            checked={formData.units === "imperial"}
+                            onCheckedChange={(c) => updateData("units", c ? "imperial" : "metric")}
+                          />
+                          <Label htmlFor="unit-switch" className="text-xs cursor-pointer">
+                            Imperial
+                          </Label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-lg font-semibold text-primary">
+                      <Settings2 className="h-5 w-5" /> <span>Target Profile</span>
+                    </div>
+                    <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
+                      <div className="flex justify-between mb-2">
+                        <Label className="text-xs">Target ABV</Label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Auto</span>
+                          <Switch
+                            checked={formData.targetABV === "auto"}
+                            onCheckedChange={(c) => updateData("targetABV", c ? "auto" : 5.0)}
+                            className="scale-75"
+                          />
+                        </div>
+                      </div>
+                      {formData.targetABV !== "auto" && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <Slider
+                              min={4}
+                              max={10}
+                              step={0.1}
+                              value={[Number(formData.targetABV)]}
+                              onValueChange={(v) => updateData("targetABV", v[0])}
+                              className="flex-1 py-2"
+                            />
+                            <Input
+                              type="number"
+                              min={4}
+                              max={10}
+                              step={0.1}
+                              value={formData.targetABV}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val >= 4 && val <= 10) {
+                                  updateData("targetABV", val);
+                                }
+                              }}
+                              className="w-20 h-8 text-sm"
+                            />
+                            <span className="text-xs text-muted-foreground">%</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
+                      <div className="flex justify-between mb-2">
+                        <Label className="text-xs">Target Bitterness (IBU)</Label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Auto</span>
+                          <Switch
+                            checked={formData.targetIBU === "auto"}
+                            onCheckedChange={(c) => updateData("targetIBU", c ? "auto" : 40)}
+                            className="scale-75"
+                          />
+                        </div>
+                      </div>
+                      {formData.targetIBU !== "auto" && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <Slider
+                              min={10}
+                              max={100}
+                              step={5}
+                              value={[Number(formData.targetIBU)]}
+                              onValueChange={(v) => updateData("targetIBU", v[0])}
+                              className="flex-1 py-2"
+                            />
+                            <Input
+                              type="number"
+                              min={10}
+                              max={100}
+                              step={5}
+                              value={formData.targetIBU}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val >= 10 && val <= 100) {
+                                  updateData("targetIBU", val);
+                                }
+                              }}
+                              className="w-20 h-8 text-sm"
+                            />
+                            <span className="text-xs text-muted-foreground">IBU</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
+                      <div className="flex justify-between mb-2">
+                        <Label className="text-xs">Target Color (EBC)</Label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Auto</span>
+                          <Switch
+                            checked={formData.targetEBC === "auto"}
+                            onCheckedChange={(c) => updateData("targetEBC", c ? "auto" : 15)}
+                            className="scale-75"
+                          />
+                        </div>
+                      </div>
+                      {formData.targetEBC !== "auto" && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <Slider
+                              min={4}
+                              max={80}
+                              step={1}
+                              value={[Number(formData.targetEBC)]}
+                              onValueChange={(v) => updateData("targetEBC", v[0])}
+                              className="flex-1 py-2"
+                            />
+                            <Input
+                              type="number"
+                              min={4}
+                              max={80}
+                              step={1}
+                              value={formData.targetEBC}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val >= 4 && val <= 80) {
+                                  updateData("targetEBC", val);
+                                }
+                              }}
+                              className="w-20 h-8 text-sm"
+                            />
+                            <span className="text-xs text-muted-foreground">EBC</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-px bg-zinc-800 my-6" />
+
+                {/* Section B: Flavor & Stock */}
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <Label className="mb-2 block font-medium">Flavor Profile & Description</Label>
+                    <Textarea
+                      placeholder={
+                        formData.expertise === "beginner"
+                          ? "E.g. fruity, not too bitter..."
+                          : "E.g. Hazy, juicy, lots of Citra..."
+                      }
+                      className="min-h-[120px]"
+                      value={formData.flavorProfile}
+                      onChange={(e) => updateData("flavorProfile", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-2 block font-medium flex items-center gap-2">
+                      <ShoppingBasket className="h-4 w-4" /> Ingredients in Stock (Optional)
+                    </Label>
+                    <Textarea
+                      placeholder="I have 50g Citra left, prefer Maris Otter malt..."
+                      className="min-h-[120px]"
+                      value={formData.ingredientsInStock || ""}
+                      onChange={(e) => updateData("ingredientsInStock", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Section C: Advanced Add-ons (Only if not beginner) */}
+                {formData.expertise !== "beginner" && (
+                  <>
+                    <div className="h-px bg-zinc-800 my-6" />
+                    <div className="bg-[#FFBF00]/5 border border-[#FFBF00]/20 rounded-lg p-4">
+                      <Label className="block mb-4 font-semibold text-[#FFBF00]">
+                        Professional Add-ons & Techniques
+                      </Label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="whirlpool"
+                            checked={formData.useWhirlpool}
+                            onCheckedChange={(c) => updateData("useWhirlpool", !!c)}
+                          />
+                          <Label htmlFor="whirlpool" className="font-normal cursor-pointer text-sm">
+                            Whirlpool Hop
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="dryhop"
+                            checked={formData.useDryHop}
+                            onCheckedChange={(c) => updateData("useDryHop", !!c)}
+                          />
+                          <Label htmlFor="dryhop" className="font-normal cursor-pointer text-sm">
+                            Dry Hopping
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="fruit"
+                            checked={formData.useFruit}
+                            onCheckedChange={(c) => updateData("useFruit", !!c)}
+                          />
+                          <Label htmlFor="fruit" className="font-normal cursor-pointer text-sm">
+                            Add Fruit
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="irishmoss"
+                            checked={formData.useIrishMoss}
+                            onCheckedChange={(c) => updateData("useIrishMoss", !!c)}
+                          />
+                          <Label htmlFor="irishmoss" className="font-normal cursor-pointer text-sm">
+                            Irish Moss
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="lactose"
+                            checked={formData.useLactose}
+                            onCheckedChange={(c) => updateData("useLactose", !!c)}
+                          />
+                          <Label htmlFor="lactose" className="font-normal cursor-pointer text-sm">
+                            Lactose
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="ascorbic"
+                            checked={formData.useAscorbicAcid}
+                            onCheckedChange={(c) => updateData("useAscorbicAcid", !!c)}
+                          />
+                          <Label htmlFor="ascorbic" className="font-normal cursor-pointer text-sm">
+                            Ascorbic Acid
+                          </Label>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* --- STEP 3: RESULT / LOADING --- */}
+            {currentStep === 3 && (
+              <div className="min-h-[400px] flex flex-col items-center justify-center">
+                {isLoading ? (
+                  <div className="text-center space-y-4 animate-in fade-in duration-500">
+                    <Loader2 className="h-12 w-12 animate-spin text-[#FFBF00] mx-auto" />
+                    <div>
+                      <h3 className="text-2xl font-bold text-primary">Brewing your recipe...</h3>
+                      <p className="text-muted-foreground mt-2">
+                        Calculating water chemistry, adjusting hop bitterness <br />
+                        and selecting the perfect yeast.
+                      </p>
+                    </div>
+                  </div>
+                ) : generatedRecipe ? (
+                  <div className="w-full animate-in slide-in-from-bottom-4 duration-500">
+                    <RecipeCard recipe={generatedRecipe} units={formData.units} />
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {/* --- NAVIGATION BUTTONS --- */}
+            <div className="mt-8 flex gap-4 pt-4 border-t border-zinc-800">
+              {currentStep === 1 && (
+                <Button
+                  onClick={nextStep}
+                  disabled={!canProceed()}
+                  className="w-full h-14 text-lg bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90"
+                >
+                  Get Started <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              )}
+
+              {currentStep === 2 && (
+                <>
+                  <Button onClick={prevStep} variant="outline" className="h-14 px-8 border-zinc-700">
+                    Back
+                  </Button>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={!canProceed() || isLoading}
+                    className="flex-1 h-14 text-lg font-bold bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90"
+                  >
+                    Create Recipe Now <Beaker className="ml-2 h-5 w-5" />
+                  </Button>
+                </>
+              )}
+
+              {currentStep === 3 && generatedRecipe && !isLoading && (
+                <Button
+                  onClick={() => setCurrentStep(2)}
+                  variant="outline"
+                  className="w-full border-zinc-700"
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Edit & Regenerate
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
