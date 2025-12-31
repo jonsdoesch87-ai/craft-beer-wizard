@@ -6,9 +6,22 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, Printer, Beaker, ShoppingCart, CheckCircle2, ArrowRight, Droplets, Thermometer } from "lucide-react";
+import { Heart, Printer, Beaker, ShoppingCart, CheckCircle2, ArrowRight, Droplets, Thermometer, Save, Crown, FlaskConical } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { saveRecipe, LimitReachedError } from "@/lib/db";
+import { toast } from "sonner";
+import Link from "next/link";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export interface Recipe {
   name: string;
@@ -59,6 +72,14 @@ export interface Recipe {
       explanation?: string;
     };
     water: { amount: string };
+    extras?: Array<{
+      name: string;
+      amount: number;
+      unit: string;
+      use: "Mash" | "Boil" | "Fermentation" | "Secondary";
+      time: string;
+      description?: string;
+    }>;
   };
   // New schema top-level
   malts?: Array<{
@@ -83,6 +104,15 @@ export interface Recipe {
     amount: string;
     explanation?: string;
   };
+  extras?: Array<{
+    name: string;
+    amount: number;
+    unit: string;
+    type?: "water_agent" | "process_aid" | "spice" | "herb" | "nutrient" | "enzyme" | "other";
+    use: "Mash" | "Boil" | "Fermentation" | "Secondary" | "Bottling";
+    time: string;
+    description?: string;
+  }>;
   mash_schedule?: Array<{
     step: string;
     temp: string;
@@ -103,8 +133,17 @@ export interface Recipe {
     category: "malt" | "hop" | "yeast" | "other";
     affiliate_link: string;
   }>;
-  estimatedTime: string;
-  notes: string;
+  estimatedTime?: string;
+  notes?: string;
+  waterProfile?: {
+    description?: string;
+    ca: number;
+    mg: number;
+    na: number;
+    cl: number;
+    so4: number;
+    hco3: number;
+  };
 }
 
 interface RecipeCardProps {
@@ -113,14 +152,55 @@ interface RecipeCardProps {
 }
 
 export function RecipeCard({ recipe, units }: RecipeCardProps) {
-  const [isSaved, setIsSaved] = useState(false);
+  const { user } = useAuth();
+  const [isSaving, setIsSaving] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<number>>(new Set());
   const [alphaAcids, setAlphaAcids] = useState<Record<number, number>>({});
   const [activeTab, setActiveTab] = useState("prep");
+  const [billOfMaterialsChecked, setBillOfMaterialsChecked] = useState<Set<number>>(new Set());
+  const [isExpertMode, setIsExpertMode] = useState<boolean>(false);
 
-  const handleSave = () => {
-    setIsSaved(!isSaved);
-    console.log("Recipe saved to profile");
+  const [showPremiumDialog, setShowPremiumDialog] = useState(false);
+
+  const handleSave = async () => {
+    if (!user) {
+      toast.error("Please login to save recipes");
+      return;
+    }
+
+    if (!recipe) {
+      toast.error("No recipe to save");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await saveRecipe(user.uid, {
+        name: recipe.name,
+        description: recipe.description,
+        specs: recipe.specs,
+        ingredients: recipe.ingredients,
+        malts: recipe.malts,
+        hops: recipe.hops,
+        yeast: recipe.yeast,
+        mash_schedule: recipe.mash_schedule,
+        boil_instructions: recipe.boil_instructions,
+        fermentation_instructions: recipe.fermentation_instructions,
+        shopping_list: recipe.shopping_list,
+        estimatedTime: recipe.estimatedTime,
+        notes: recipe.notes,
+      });
+      toast.success("Recipe saved to your library!");
+    } catch (error: any) {
+      console.error("Error saving recipe:", error);
+      if (error instanceof LimitReachedError || error?.message === "LIMIT_REACHED" || error?.name === "LimitReachedError") {
+        setShowPremiumDialog(true);
+      } else {
+        toast.error("Failed to save recipe");
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handlePrint = () => {
@@ -140,6 +220,15 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
   const handleAlphaAcidChange = (index: number, value: string) => {
     const numValue = parseFloat(value) || 0;
     setAlphaAcids((prev) => ({ ...prev, [index]: numValue }));
+  };
+
+  // Helper function to convert SG to Plato
+  const toPlato = (sg: string | number | undefined): string => {
+    if (!sg) return "";
+    const sgValue = typeof sg === "string" ? parseFloat(sg) : sg;
+    if (isNaN(sgValue) || sgValue <= 0) return "";
+    const plato = ((sgValue - 1) * 250).toFixed(1);
+    return `${plato}°P`;
   };
 
   const getSpec = (key: keyof NonNullable<Recipe["specs"]>): string => {
@@ -244,10 +333,43 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                 {recipe.description || "A carefully crafted recipe tailored to your preferences."}
               </CardDescription>
             </div>
-            <div className="ml-4 flex gap-2 print:hidden">
-              <Button variant="outline" size="icon" onClick={handleSave} className={isSaved ? "border-primary bg-primary/10" : ""}>
-                <Heart className={`h-5 w-5 ${isSaved ? "fill-primary text-primary" : ""}`} />
-              </Button>
+            <div className="ml-4 flex gap-2 print:hidden items-center">
+              {/* Expert Mode Toggle */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-zinc-700 bg-zinc-900/50">
+                <FlaskConical className="h-4 w-4 text-[#FFBF00]" />
+                <Label htmlFor="expert-mode" className="text-sm cursor-pointer">
+                  Expert Mode
+                </Label>
+                <Switch
+                  id="expert-mode"
+                  checked={isExpertMode}
+                  onCheckedChange={setIsExpertMode}
+                />
+              </div>
+              {user ? (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="border-primary hover:bg-primary/10"
+                  title="Save to Library"
+                >
+                  <Save className={`h-5 w-5 ${isSaving ? "animate-pulse" : ""}`} />
+                </Button>
+              ) : (
+                <Link href="/wizard">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-primary hover:bg-primary/10"
+                    title="Login to Save"
+                  >
+                    <Save className="mr-2 h-4 w-4" />
+                    Login to Save
+                  </Button>
+                </Link>
+              )}
               <Button variant="outline" size="icon" onClick={handlePrint}>
                 <Printer className="h-5 w-5" />
               </Button>
@@ -263,10 +385,18 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
               IBU: {getSpec("ibu")}
             </Badge>
             <Badge variant="outline" className="border-zinc-700">
-              OG: {getSpec("original_gravity") || recipe.specs?.og || "1.050"}
+              OG: {(() => {
+                const og = getSpec("original_gravity") || recipe.specs?.og || "1.050";
+                const plato = toPlato(og);
+                return plato ? `${og} (${plato})` : og;
+              })()}
             </Badge>
             <Badge variant="outline" className="border-zinc-700">
-              FG: {getSpec("final_gravity") || recipe.specs?.fg || "1.010"}
+              FG: {(() => {
+                const fg = getSpec("final_gravity") || recipe.specs?.fg || "1.010";
+                const plato = toPlato(fg);
+                return plato ? `${fg} (${plato})` : fg;
+              })()}
             </Badge>
           </div>
         </CardHeader>
@@ -355,7 +485,7 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                             className="h-8 w-16 border-0 bg-transparent text-right p-1"
                             placeholder={originalAlpha.toString()}
                           />
-                          <span className="text-xs text-muted-foreground pr-2">% AA</span>
+                          <span className="text-xs text-muted-foreground pr-2">% α</span>
                         </div>
                         <div className="min-w-[80px] text-right">
                            <div className={`text-base font-bold ${hasChanged ? "text-[#FFBF00]" : "text-zinc-400"}`}>
@@ -383,17 +513,75 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
             {/* Left Column: Ingredients */}
             <Card className="print:border-0 print:shadow-none h-fit">
               <CardHeader className="pb-3 border-b border-zinc-800">
-                <CardTitle className="text-base font-semibold">Bill of Materials</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-semibold">Bill of Materials</CardTitle>
+                  {(() => {
+                    const allMalts = recipe?.malts || recipe?.ingredients?.malts || [];
+                    return allMalts.length > 0 ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const allMalts = recipe?.malts || recipe?.ingredients?.malts || [];
+                          const allChecked = allMalts.every((_, idx) => billOfMaterialsChecked.has(idx));
+                          if (allChecked) {
+                            setBillOfMaterialsChecked(new Set());
+                          } else {
+                            setBillOfMaterialsChecked(new Set(allMalts.map((_, idx) => idx)));
+                          }
+                        }}
+                        className="text-sm"
+                      >
+                        {(() => {
+                          const allMalts = recipe?.malts || recipe?.ingredients?.malts || [];
+                          return allMalts.every((_, idx) => billOfMaterialsChecked.has(idx))
+                            ? "Uncheck All"
+                            : "Check All";
+                        })()}
+                      </Button>
+                    ) : null;
+                  })()}
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 {/* Malts */}
                 <div className="p-4">
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Malts & Grains</h4>
                   <div className="rounded-md border border-zinc-800 overflow-hidden">
-                    {(recipe.malts || recipe.ingredients?.malts || []).map((malt, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 text-sm odd:bg-zinc-900/50 even:bg-transparent">
-                        <span className="font-medium">{malt.name}</span>
-                        <span className="text-zinc-400">{malt.amount}</span>
+                    {(recipe?.malts || recipe?.ingredients?.malts || []).map((malt, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 p-2 text-sm odd:bg-zinc-900/50 even:bg-transparent cursor-pointer hover:bg-zinc-800/50 transition-colors"
+                        onClick={() => {
+                          const newChecked = new Set(billOfMaterialsChecked);
+                          if (newChecked.has(idx)) {
+                            newChecked.delete(idx);
+                          } else {
+                            newChecked.add(idx);
+                          }
+                          setBillOfMaterialsChecked(newChecked);
+                        }}
+                      >
+                        <Checkbox
+                          checked={billOfMaterialsChecked.has(idx)}
+                          onCheckedChange={(checked) => {
+                            const newChecked = new Set(billOfMaterialsChecked);
+                            if (checked) {
+                              newChecked.add(idx);
+                            } else {
+                              newChecked.delete(idx);
+                            }
+                            setBillOfMaterialsChecked(newChecked);
+                          }}
+                          className="h-6 w-6 cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className={`font-medium flex-1 ${billOfMaterialsChecked.has(idx) ? "line-through text-muted-foreground" : ""}`}>
+                          {malt.name}
+                        </span>
+                        <span className={`text-zinc-400 ${billOfMaterialsChecked.has(idx) ? "line-through text-muted-foreground" : ""}`}>
+                          {malt.amount}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -412,7 +600,7 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                           <div>
                             <span className="font-medium">{hop.name}</span>
                             <span className="ml-2 text-xs text-zinc-500">
-                              {typeof hop.alpha === 'string' ? hop.alpha.replace('%', '') : hop.alpha}% AA
+                              {typeof hop.alpha === 'string' ? hop.alpha.replace('%', '') : hop.alpha}% α
                             </span>
                           </div>
                           <span className={hasChanged ? "font-bold text-[#FFBF00]" : "text-zinc-400"}>
@@ -442,6 +630,158 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                             <div className="text-sm font-bold">{getSpec("sparge_water") || "N/A"}</div>
                          </div>
                     </div>
+                    
+                    {/* Target Water Profile - Only show in Expert Mode */}
+                    {isExpertMode && recipe.waterProfile && (
+                      <div className="mt-4 space-y-3">
+                        <div className="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Droplets className="h-4 w-4 text-blue-400" />
+                            <div className="text-xs font-bold uppercase text-blue-400">Target Water Profile</div>
+                          </div>
+                          {recipe.waterProfile.description && (
+                            <div className="text-sm font-medium text-[#FFBF00] mb-3">{recipe.waterProfile.description}</div>
+                          )}
+                          {/* Responsive grid: 2 cols on mobile, 3 on tablet, 6 on desktop */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+                            <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                              <div className="text-muted-foreground mb-0.5">Ca</div>
+                              <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.ca || 0} ppm</div>
+                            </div>
+                            <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                              <div className="text-muted-foreground mb-0.5">Mg</div>
+                              <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.mg || 0} ppm</div>
+                            </div>
+                            <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                              <div className="text-muted-foreground mb-0.5">Na</div>
+                              <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.na || 0} ppm</div>
+                            </div>
+                            <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                              <div className="text-muted-foreground mb-0.5">Cl</div>
+                              <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.cl || 0} ppm</div>
+                            </div>
+                            <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                              <div className="text-muted-foreground mb-0.5">SO₄</div>
+                              <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.so4 || 0} ppm</div>
+                            </div>
+                            <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                              <div className="text-muted-foreground mb-0.5">HCO₃</div>
+                              <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.hco3 || 0} ppm</div>
+                            </div>
+                          </div>
+                          {recipe.waterProfile.cl > 0 && recipe.waterProfile.so4 > 0 && (
+                            <div className="mt-2 text-xs text-muted-foreground">
+                              Cl:SO₄ Ratio: {(recipe.waterProfile.cl / recipe.waterProfile.so4).toFixed(2)}:1
+                              {recipe.waterProfile.cl > recipe.waterProfile.so4 * 1.5 && (
+                                <span className="ml-2 text-[#FFBF00]">(Chloride-dominant)</span>
+                              )}
+                              {recipe.waterProfile.so4 > recipe.waterProfile.cl * 1.5 && (
+                                <span className="ml-2 text-[#FFBF00]">(Sulfate-dominant)</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Water Adjustments (extras with type="water_agent") */}
+                        {(() => {
+                          const allExtras = recipe.extras || recipe.ingredients?.extras || [];
+                          const waterAgents = allExtras.filter((e: any) => e.type === "water_agent");
+                          if (waterAgents.length > 0) {
+                            return (
+                              <div className="mt-3 p-3 bg-blue-500/5 rounded-lg border border-blue-500/10">
+                                <div className="text-xs font-bold uppercase text-blue-400 mb-2">Water Adjustments</div>
+                                <div className="space-y-1.5">
+                                  {waterAgents.map((agent: any, idx: number) => (
+                                    <div key={idx} className="flex items-center justify-between text-sm bg-zinc-900/30 p-2 rounded border border-zinc-800">
+                                      <div className="flex-1">
+                                        <span className="font-medium">{agent.name}</span>
+                                        {agent.description && (
+                                          <div className="text-xs text-muted-foreground mt-0.5">{agent.description}</div>
+                                        )}
+                                      </div>
+                                      <div className="text-right ml-2">
+                                        <span className="font-bold text-[#FFBF00]">{agent.amount} {agent.unit || "g"}</span>
+                                        {agent.use && (
+                                          <div className="text-xs text-muted-foreground">{agent.use}</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Extras / Additives - Categorized (exclude water_agent, already shown above) */}
+                    {(() => {
+                      const allExtras = recipe.extras || recipe.ingredients?.extras || [];
+                      const nonWaterExtras = allExtras.filter((e: any) => e.type !== "water_agent");
+                      if (nonWaterExtras.length === 0) return null;
+
+                      // Categorize extras
+                      const processAids = nonWaterExtras.filter((e: any) => e.type === "process_aid" || (!e.type && (e.name?.toLowerCase().includes("irish moss") || e.name?.toLowerCase().includes("rice hull") || e.name?.toLowerCase().includes("yeast nutrient") || e.name?.toLowerCase().includes("whirlfloc"))));
+                      const otherExtras = nonWaterExtras.filter((e: any) => !processAids.includes(e));
+
+                      return (
+                        <div className="mt-4 space-y-3">
+                          {/* Process Aids */}
+                          {processAids.length > 0 && (
+                            <div className="bg-zinc-800/50 rounded-lg border border-zinc-700 p-3">
+                              <div className="text-xs font-bold uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                                <FlaskConical className="h-3 w-3" /> Process Aids
+                              </div>
+                              <div className="space-y-1.5">
+                                {processAids.map((extra: any, idx: number) => (
+                                  <div key={idx} className="flex items-center justify-between text-sm bg-zinc-900/30 p-2 rounded border border-zinc-800">
+                                    <div className="flex-1">
+                                      <span className="font-medium">{extra.name}</span>
+                                      {extra.description && (
+                                        <div className="text-xs text-muted-foreground mt-0.5">{extra.description}</div>
+                                      )}
+                                    </div>
+                                    <div className="text-right ml-2">
+                                      <span className="font-bold text-[#FFBF00]">{extra.amount} {extra.unit || "g"}</span>
+                                      {extra.use && extra.time && (
+                                        <div className="text-xs text-muted-foreground">{extra.use} @ {extra.time}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Other Extras (Spices, Herbs, etc.) */}
+                          {otherExtras.length > 0 && (
+                            <div className="bg-zinc-800/50 rounded-lg border border-zinc-700 p-3">
+                              <div className="text-xs font-bold uppercase text-muted-foreground mb-2">Other Additives</div>
+                              <div className="space-y-1.5">
+                                {otherExtras.map((extra: any, idx: number) => (
+                                  <div key={idx} className="flex items-center justify-between text-sm bg-zinc-900/30 p-2 rounded border border-zinc-800">
+                                    <div className="flex-1">
+                                      <span className="font-medium">{extra.name}</span>
+                                      {extra.description && (
+                                        <div className="text-xs text-muted-foreground mt-0.5">{extra.description}</div>
+                                      )}
+                                    </div>
+                                    <div className="text-right ml-2">
+                                      <span className="font-bold text-[#FFBF00]">{extra.amount} {extra.unit || "g"}</span>
+                                      {extra.use && extra.time && (
+                                        <div className="text-xs text-muted-foreground">{extra.use} @ {extra.time}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                 </div>
               </CardContent>
             </Card>
@@ -510,9 +850,30 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                         })
                       }
                    </div>
-                   {recipe.specs?.pre_boil_gravity && (
-                       <div className="p-3 bg-zinc-900/50 text-xs text-center border-t border-zinc-800">
-                          Target Pre-Boil Gravity: <span className="font-mono text-[#FFBF00]">{recipe.specs.pre_boil_gravity}</span>
+                   {(recipe.specs?.pre_boil_gravity || recipe.specs?.original_gravity) && (
+                       <div className="p-3 bg-zinc-900/50 text-xs text-center border-t border-zinc-800 space-y-1">
+                          {recipe.specs?.pre_boil_gravity && (
+                            <div>
+                              Target Pre-Boil Gravity: <span className="font-mono text-[#FFBF00]">
+                                {(() => {
+                                  const pbg = recipe.specs.pre_boil_gravity;
+                                  const plato = toPlato(pbg);
+                                  return plato ? `${pbg} (${plato})` : pbg;
+                                })()}
+                              </span>
+                            </div>
+                          )}
+                          {recipe.specs?.original_gravity && (
+                            <div>
+                              Target Original Gravity (OG): <span className="font-mono text-[#FFBF00]">
+                                {(() => {
+                                  const og = recipe.specs.original_gravity;
+                                  const plato = toPlato(og);
+                                  return plato ? `${og} (${plato})` : og;
+                                })()}
+                              </span>
+                            </div>
+                          )}
                        </div>
                    )}
                 </CardContent>
@@ -533,7 +894,18 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                             </div>
                         ))}
                     </div>
-
+                    
+                    {/* Carbonation */}
+                    {(recipe as any).carbonation && (
+                      <div className="p-3 bg-zinc-900/50 rounded-lg border border-zinc-800">
+                        <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Carbonation</div>
+                        <div className="text-sm text-[#FFBF00] font-mono">
+                          {(recipe as any).carbonation.display || 
+                           `${(recipe as any).carbonation.vol_co2 || 2.4} vol (${(recipe as any).carbonation.sugar_g_per_l || 6}g sugar/L)`}
+                        </div>
+                      </div>
+                    )}
+                    
                     {/* Dry Hops */}
                     {allHops.filter(h => h.time?.toLowerCase().includes("dry")).length > 0 && (
                         <div className="space-y-2 pt-2 border-t border-zinc-800">
@@ -558,6 +930,56 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Premium Upgrade Dialog */}
+      <Dialog open={showPremiumDialog} onOpenChange={setShowPremiumDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#FFBF00]">
+              <Crown className="h-5 w-5" />
+              Hobby-Brauer Limit erreicht!
+            </DialogTitle>
+            <DialogDescription>
+              Du hast bereits 3 Rezepte gespeichert. Upgrade auf Pro für unbegrenzte Rezepte!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="rounded-lg bg-zinc-900/50 border border-zinc-800 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-[#4CBB17]" />
+                <span className="text-sm">Unbegrenzte Rezepte</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-[#4CBB17]" />
+                <span className="text-sm">Erweiterte Features</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-[#4CBB17]" />
+                <span className="text-sm">Prioritärer Support</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowPremiumDialog(false)}
+            >
+              Maybe Later
+            </Button>
+            <Button
+              onClick={() => {
+                console.log("Redirect to Stripe");
+                setShowPremiumDialog(false);
+                toast.info("Premium upgrade coming soon!");
+              }}
+              className="bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90"
+            >
+              <Crown className="mr-2 h-4 w-4" />
+              Unlock Pro (Unlimited)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

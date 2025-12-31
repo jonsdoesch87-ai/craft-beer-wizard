@@ -13,16 +13,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RecipeCard } from "@/components/RecipeCard";
-import { ArrowLeft, ArrowRight, Check, Loader2, Info, Beaker, Settings2, ShoppingBasket } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Info, Beaker, Settings2, ShoppingBasket, Timer, Rocket, Droplets } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+import { saveRecipe, LimitReachedError } from "@/lib/db";
+import { toast } from "sonner";
 
 // --- Types & Interfaces ---
 type Expertise = "beginner" | "intermediate" | "expert" | "";
 type Equipment = "pot" | "all-in-one" | "professional" | "";
+
+interface SourceWaterProfile {
+  mode: "location" | "basic" | "expert";
+  location?: string;
+  hardness?: number;  // in °dH
+  ph?: number;
+  ca?: number;
+  mg?: number;
+  na?: number;
+  cl?: number;
+  so4?: number;
+  hco3?: number;
+}
 
 interface WizardData {
   expertise: Expertise;
@@ -30,6 +48,7 @@ interface WizardData {
   beerStyle: string;
   flavorProfile: string;
   units: "metric" | "imperial";
+  tempUnit: "C" | "F";
   batchSize: number;
   targetABV?: number | "auto";
   targetIBU?: number | "auto";
@@ -41,6 +60,7 @@ interface WizardData {
   useAscorbicAcid: boolean;
   useLactose: boolean;
   useDryHop: boolean;
+  sourceWaterProfile?: SourceWaterProfile;
 }
 
 const BEER_STYLES = [
@@ -60,6 +80,7 @@ const BEER_STYLES = [
 
 interface GeneratedRecipe {
   name: string;
+  description?: string;
   specs?: any;
   originalGravity?: string;
   finalGravity?: string;
@@ -80,9 +101,13 @@ interface GeneratedRecipe {
 }
 
 export default function WizardPage() {
+  const router = useRouter();
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [generatedRecipe, setGeneratedRecipe] = useState<GeneratedRecipe | null>(null);
+  const [savedRecipeId, setSavedRecipeId] = useState<string | null>(null);
+  const [isSavingForBrew, setIsSavingForBrew] = useState(false);
 
   const [formData, setFormData] = useState<WizardData>({
     expertise: "",
@@ -90,6 +115,7 @@ export default function WizardPage() {
     beerStyle: "",
     flavorProfile: "",
     units: "metric",
+    tempUnit: "C",
     batchSize: 20,
     targetABV: "auto",
     targetIBU: "auto",
@@ -101,6 +127,15 @@ export default function WizardPage() {
     useAscorbicAcid: false,
     useLactose: false,
     useDryHop: false,
+  });
+
+  // Source Water Profile State (Smart Input with Tabs)
+  const [waterInputMode, setWaterInputMode] = useState<"location" | "basic" | "expert">("location");
+  const [sourceWaterProfile, setSourceWaterProfile] = useState<SourceWaterProfile>({
+    mode: "location",
+    location: "",
+    hardness: undefined,
+    ph: 7.0,
   });
 
   const updateData = (field: keyof WizardData, value: any) => {
@@ -141,10 +176,43 @@ export default function WizardPage() {
     setCurrentStep(3);
 
     try {
+      // Prepare sourceWaterProfile payload - only include relevant fields based on mode
+      let waterProfilePayload: SourceWaterProfile | undefined = undefined;
+      if (formData.expertise === "expert") {
+        if (waterInputMode === "location" && sourceWaterProfile.location?.trim()) {
+          waterProfilePayload = {
+            mode: "location",
+            location: sourceWaterProfile.location.trim(),
+          };
+        } else if (waterInputMode === "basic" && sourceWaterProfile.hardness !== undefined) {
+          waterProfilePayload = {
+            mode: "basic",
+            hardness: sourceWaterProfile.hardness,
+            ph: sourceWaterProfile.ph,
+          };
+        } else if (waterInputMode === "expert") {
+          waterProfilePayload = {
+            mode: "expert",
+            ca: sourceWaterProfile.ca,
+            mg: sourceWaterProfile.mg,
+            na: sourceWaterProfile.na,
+            cl: sourceWaterProfile.cl,
+            so4: sourceWaterProfile.so4,
+            hco3: sourceWaterProfile.hco3,
+            ph: sourceWaterProfile.ph,
+          };
+        }
+      }
+
+      const payload = {
+        ...formData,
+        sourceWaterProfile: waterProfilePayload,
+      };
+
       const response = await fetch("/api/generate-recipe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const result = await response.json();
@@ -269,6 +337,49 @@ export default function WizardPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Units Selection */}
+                <div className="space-y-4 pt-4 border-t border-zinc-800">
+                  <div className="space-y-2">
+                    <Label className="text-base">Weight & Volume Units</Label>
+                    <div className="flex items-center justify-center gap-3">
+                      <Label htmlFor="unit-switch" className="text-sm cursor-pointer">
+                        Metric
+                      </Label>
+                      <Switch
+                        id="unit-switch"
+                        checked={formData.units === "imperial"}
+                        onCheckedChange={(c) => {
+                          updateData("units", c ? "imperial" : "metric");
+                          // Auto-set tempUnit to F when imperial is selected
+                          if (c) {
+                            updateData("tempUnit", "F");
+                          }
+                        }}
+                      />
+                      <Label htmlFor="unit-switch" className="text-sm cursor-pointer">
+                        Imperial
+                      </Label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-base">Temperature Units</Label>
+                    <div className="flex items-center justify-center gap-3">
+                      <Label htmlFor="temp-switch" className="text-sm cursor-pointer">
+                        Celsius (°C)
+                      </Label>
+                      <Switch
+                        id="temp-switch"
+                        checked={formData.tempUnit === "F"}
+                        onCheckedChange={(c) => updateData("tempUnit", c ? "F" : "C")}
+                      />
+                      <Label htmlFor="temp-switch" className="text-sm cursor-pointer">
+                        Fahrenheit (°F)
+                      </Label>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -300,7 +411,7 @@ export default function WizardPage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="mb-1.5 block">Batch Size ({formData.units})</Label>
+                      <Label className="mb-1.5 block">Batch Size ({formData.units === "metric" ? "L" : "gal"})</Label>
                       <div className="flex gap-4">
                         <Input
                           type="number"
@@ -308,19 +419,6 @@ export default function WizardPage() {
                           onChange={(e) => updateData("batchSize", parseFloat(e.target.value) || 0)}
                           className="h-11"
                         />
-                        <div className="flex items-center gap-2 border rounded-md px-3 bg-muted/20">
-                          <Label htmlFor="unit-switch" className="text-xs cursor-pointer">
-                            Metric
-                          </Label>
-                          <Switch
-                            id="unit-switch"
-                            checked={formData.units === "imperial"}
-                            onCheckedChange={(c) => updateData("units", c ? "imperial" : "metric")}
-                          />
-                          <Label htmlFor="unit-switch" className="text-xs cursor-pointer">
-                            Imperial
-                          </Label>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -346,7 +444,7 @@ export default function WizardPage() {
                           <div className="flex items-center gap-3">
                             <Slider
                               min={4}
-                              max={10}
+                              max={20}
                               step={0.1}
                               value={[Number(formData.targetABV)]}
                               onValueChange={(v) => updateData("targetABV", v[0])}
@@ -355,12 +453,12 @@ export default function WizardPage() {
                             <Input
                               type="number"
                               min={4}
-                              max={10}
+                              max={20}
                               step={0.1}
                               value={formData.targetABV}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value);
-                                if (!isNaN(val) && val >= 4 && val <= 10) {
+                                if (!isNaN(val) && val >= 4 && val <= 20) {
                                   updateData("targetABV", val);
                                 }
                               }}
@@ -389,7 +487,7 @@ export default function WizardPage() {
                           <div className="flex items-center gap-3">
                             <Slider
                               min={10}
-                              max={100}
+                              max={150}
                               step={5}
                               value={[Number(formData.targetIBU)]}
                               onValueChange={(v) => updateData("targetIBU", v[0])}
@@ -398,12 +496,12 @@ export default function WizardPage() {
                             <Input
                               type="number"
                               min={10}
-                              max={100}
+                              max={150}
                               step={5}
                               value={formData.targetIBU}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value);
-                                if (!isNaN(val) && val >= 10 && val <= 100) {
+                                if (!isNaN(val) && val >= 10 && val <= 150) {
                                   updateData("targetIBU", val);
                                 }
                               }}
@@ -432,7 +530,7 @@ export default function WizardPage() {
                           <div className="flex items-center gap-3">
                             <Slider
                               min={4}
-                              max={80}
+                              max={150}
                               step={1}
                               value={[Number(formData.targetEBC)]}
                               onValueChange={(v) => updateData("targetEBC", v[0])}
@@ -441,12 +539,12 @@ export default function WizardPage() {
                             <Input
                               type="number"
                               min={4}
-                              max={80}
+                              max={150}
                               step={1}
                               value={formData.targetEBC}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value);
-                                if (!isNaN(val) && val >= 4 && val <= 80) {
+                                if (!isNaN(val) && val >= 4 && val <= 150) {
                                   updateData("targetEBC", val);
                                 }
                               }}
@@ -490,7 +588,250 @@ export default function WizardPage() {
                   </div>
                 </div>
 
-                {/* Section C: Advanced Add-ons (Only if not beginner) */}
+                {/* Section C: Water Chemistry (Expert Only) */}
+                {formData.expertise === "expert" && (
+                  <>
+                    <div className="h-px bg-zinc-800 my-6" />
+                    <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Droplets className="h-5 w-5 text-blue-400" />
+                        <Label className="font-semibold text-blue-400">
+                          Water Profile (Optional)
+                        </Label>
+                      </div>
+                      <Tabs 
+                        value={waterInputMode} 
+                        onValueChange={(value) => {
+                          const mode = value as "location" | "basic" | "expert";
+                          setWaterInputMode(mode);
+                          setSourceWaterProfile({
+                            ...sourceWaterProfile,
+                            mode: mode,
+                          });
+                        }}
+                        className="w-full"
+                      >
+                        <TabsList className="grid w-full grid-cols-3 mb-4">
+                          <TabsTrigger value="location" className="text-xs sm:text-sm">
+                            📍 Simple (Location)
+                          </TabsTrigger>
+                          <TabsTrigger value="basic" className="text-xs sm:text-sm">
+                            🧪 Test Strip (Basic)
+                          </TabsTrigger>
+                          <TabsTrigger value="expert" className="text-xs sm:text-sm">
+                            🔬 Expert (Report)
+                          </TabsTrigger>
+                        </TabsList>
+
+                        {/* Tab 1: Simple / Location */}
+                        <TabsContent value="location" className="space-y-3 mt-4">
+                          <p className="text-sm text-muted-foreground">
+                            Don't know your values? Tell us where you are, and our AI will estimate the profile.
+                          </p>
+                          <div>
+                            <Label className="text-sm mb-2 block">Location / Water Type</Label>
+                            <Input
+                              type="text"
+                              placeholder="e.g. Munich, Germany or 'Hard Tap Water'"
+                              value={sourceWaterProfile.location || ""}
+                              onChange={(e) =>
+                                setSourceWaterProfile({
+                                  ...sourceWaterProfile,
+                                  mode: "location",
+                                  location: e.target.value,
+                                })
+                              }
+                              className="h-10"
+                            />
+                          </div>
+                        </TabsContent>
+
+                        {/* Tab 2: Test Strip / Basic */}
+                        <TabsContent value="basic" className="space-y-3 mt-4">
+                          <p className="text-sm text-muted-foreground">
+                            Enter values from a standard aquarium or pool test strip.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <Label className="text-sm mb-2 block">Total Hardness (°dH)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="e.g. 12"
+                                value={sourceWaterProfile.hardness || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "basic",
+                                    hardness: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-10"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-sm mb-2 block">pH Value</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                min="5"
+                                max="9"
+                                placeholder="7.0"
+                                value={sourceWaterProfile.ph || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "basic",
+                                    ph: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-10"
+                              />
+                            </div>
+                          </div>
+                        </TabsContent>
+
+                        {/* Tab 3: Expert / Lab Report */}
+                        <TabsContent value="expert" className="space-y-3 mt-4">
+                          <p className="text-sm text-muted-foreground">
+                            Enter the exact report from your water supplier.
+                          </p>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div>
+                              <Label className="text-xs mb-1 block">Calcium (Ca)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="0"
+                                value={sourceWaterProfile.ca || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    ca: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                              <span className="text-xs text-muted-foreground">ppm</span>
+                            </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">Magnesium (Mg)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="0"
+                                value={sourceWaterProfile.mg || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    mg: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                              <span className="text-xs text-muted-foreground">ppm</span>
+                            </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">Sodium (Na)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="0"
+                                value={sourceWaterProfile.na || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    na: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                              <span className="text-xs text-muted-foreground">ppm</span>
+                            </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">Chloride (Cl)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="0"
+                                value={sourceWaterProfile.cl || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    cl: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                              <span className="text-xs text-muted-foreground">ppm</span>
+                            </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">Sulfate (SO₄)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="0"
+                                value={sourceWaterProfile.so4 || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    so4: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                              <span className="text-xs text-muted-foreground">ppm</span>
+                            </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">Bicarbonate (HCO₃)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="0"
+                                value={sourceWaterProfile.hco3 || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    hco3: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                              <span className="text-xs text-muted-foreground">ppm</span>
+                            </div>
+                            <div>
+                              <Label className="text-xs mb-1 block">pH (Optional)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                min="5"
+                                max="9"
+                                placeholder="7.0"
+                                value={sourceWaterProfile.ph || ""}
+                                onChange={(e) =>
+                                  setSourceWaterProfile({
+                                    ...sourceWaterProfile,
+                                    mode: "expert",
+                                    ph: parseFloat(e.target.value) || undefined,
+                                  })
+                                }
+                                className="h-9 text-sm"
+                              />
+                            </div>
+                          </div>
+                        </TabsContent>
+                      </Tabs>
+                    </div>
+                  </>
+                )}
+
+                {/* Section D: Advanced Add-ons (Only if not beginner) */}
                 {formData.expertise !== "beginner" && (
                   <>
                     <div className="h-px bg-zinc-800 my-6" />
@@ -616,13 +957,94 @@ export default function WizardPage() {
               )}
 
               {currentStep === 3 && generatedRecipe && !isLoading && (
-                <Button
-                  onClick={() => setCurrentStep(2)}
-                  variant="outline"
-                  className="w-full border-zinc-700"
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" /> Edit & Regenerate
-                </Button>
+                <div className="w-full space-y-4">
+                  {/* Brew Session Button */}
+                  {savedRecipeId ? (
+                    <Link href={`/brew/${savedRecipeId}`} className="block w-full">
+                      <Button
+                        size="lg"
+                        className="w-full bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90 text-xl px-8 py-8 h-auto font-bold shadow-lg hover:shadow-xl transition-all"
+                      >
+                        <Rocket className="mr-3 h-6 w-6" />
+                        🚀 Start Brew Session
+                      </Button>
+                    </Link>
+                  ) : user ? (
+                    <Button
+                      size="lg"
+                      onClick={async () => {
+                        if (!user || !generatedRecipe) return;
+                        setIsSavingForBrew(true);
+                        try {
+                          const recipeId = await saveRecipe(user.uid, {
+                            name: generatedRecipe.name,
+                            description: generatedRecipe.description,
+                            specs: generatedRecipe.specs,
+                            ingredients: generatedRecipe.ingredients,
+                            malts: generatedRecipe.malts,
+                            hops: generatedRecipe.hops,
+                            yeast: generatedRecipe.yeast,
+                            mash_schedule: generatedRecipe.mash_schedule,
+                            boil_instructions: generatedRecipe.boil_instructions,
+                            fermentation_instructions: generatedRecipe.fermentation_instructions,
+                            shopping_list: generatedRecipe.shopping_list,
+                            estimatedTime: generatedRecipe.estimatedTime,
+                            notes: generatedRecipe.notes,
+                          });
+                          setSavedRecipeId(recipeId);
+                          toast.success("Recipe saved! Redirecting to Brew Day Mode...");
+                          setTimeout(() => {
+                            router.push(`/brew/${recipeId}`);
+                          }, 1000);
+                        } catch (error: any) {
+                          console.error("Error saving recipe:", error);
+                          if (error instanceof LimitReachedError || error?.message === "LIMIT_REACHED" || error?.name === "LimitReachedError") {
+                            toast.error("Recipe limit reached. Please upgrade to Pro.");
+                          } else {
+                            toast.error("Failed to save recipe");
+                          }
+                        } finally {
+                          setIsSavingForBrew(false);
+                        }
+                      }}
+                      disabled={isSavingForBrew}
+                      className="w-full bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90 text-xl px-8 py-8 h-auto font-bold shadow-lg hover:shadow-xl transition-all"
+                    >
+                      {isSavingForBrew ? (
+                        <>
+                          <Loader2 className="mr-3 h-6 w-6 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Rocket className="mr-3 h-6 w-6" />
+                          🚀 Start Brew Session
+                        </>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="lg"
+                      onClick={() => {
+                        toast.info("Please login to start a brew session");
+                        router.push("/");
+                      }}
+                      variant="outline"
+                      className="w-full border-zinc-700 text-lg py-6"
+                    >
+                      <Timer className="mr-2 h-5 w-5" />
+                      Login to Start Brew Session
+                    </Button>
+                  )}
+                  
+                  <Button
+                    onClick={() => setCurrentStep(2)}
+                    variant="outline"
+                    className="w-full border-zinc-700"
+                  >
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Edit & Regenerate
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>
