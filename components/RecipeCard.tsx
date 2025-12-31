@@ -414,138 +414,147 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
       {/* Header */}
       <Card className="print:border-0 print:shadow-none bg-gradient-to-r from-background to-zinc-900/50">
         <CardHeader className="relative">
-          <div className="mb-4 flex items-start justify-between">
-            <div className="flex-1">
+          {/* Wrapper: Mobile = Column, Desktop = Row */}
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            {/* Left Side: Title & Info */}
+            <div className="flex-1 min-w-0">
               <div className="mb-2">
-                <CardTitle className="text-3xl font-bold text-[#FFBF00] sm:text-4xl">
+                <CardTitle className="text-2xl sm:text-3xl md:text-4xl font-bold text-[#FFBF00] break-words leading-tight">
                   {recipe.name}
                 </CardTitle>
               </div>
-              <CardDescription className="text-base italic max-w-2xl">
+              <CardDescription className="text-sm sm:text-base italic max-w-2xl">
                 {recipe.description || "A carefully crafted recipe tailored to your preferences."}
               </CardDescription>
             </div>
-            <div className="ml-4 flex gap-2 print:hidden items-center">
+            
+            {/* Right Side: Actions */}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end print:hidden">
               {/* Expert Mode Toggle */}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-zinc-700 bg-zinc-900/50">
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-zinc-700 bg-zinc-900/50 flex-grow sm:flex-grow-0 justify-center">
                 <FlaskConical className="h-4 w-4 text-[#FFBF00]" />
-                <Label htmlFor="expert-mode" className="text-sm cursor-pointer">
-                  Expert Mode
+                <Label htmlFor="expert-mode" className="text-xs sm:text-sm cursor-pointer whitespace-nowrap">
+                  Expert
                 </Label>
                 <Switch
                   id="expert-mode"
                   checked={isExpertMode}
                   onCheckedChange={setIsExpertMode}
+                  className="scale-75 sm:scale-100"
                 />
               </div>
               
               {/* Public Toggle (only for own recipes) */}
               {isOwnRecipe && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-blue-500/30 bg-blue-500/10">
+                <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 flex-grow sm:flex-grow-0 justify-center">
                   <Globe className="h-4 w-4 text-blue-400" />
-                  <Label htmlFor="public-toggle" className="text-sm cursor-pointer text-blue-400">
-                    Public 🌍
+                  <Label htmlFor="public-toggle" className="text-xs sm:text-sm cursor-pointer text-blue-400 whitespace-nowrap">
+                    Public
                   </Label>
                   <Switch
                     id="public-toggle"
                     checked={isPublic}
                     onCheckedChange={handleTogglePublic}
                     disabled={isPublishing}
-                    className="data-[state=checked]:bg-blue-500"
+                    className="scale-75 sm:scale-100 data-[state=checked]:bg-blue-500"
                   />
                 </div>
               )}
 
-              {user ? (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="border-primary hover:bg-primary/10"
-                  title="Save to Library"
-                >
-                  <Save className={`h-5 w-5 ${isSaving ? "animate-pulse" : ""}`} />
-                </Button>
-              ) : (
-                <Link href="/wizard">
+              {/* Action Buttons (Save, Print, Share) */}
+              <div className="flex items-center gap-2 ml-auto sm:ml-0">
+                {user ? (
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="icon"
+                    onClick={handleSave}
+                    disabled={isSaving}
                     className="border-primary hover:bg-primary/10"
-                    title="Login to Save"
+                    title="Save to Library"
                   >
-                    <Save className="mr-2 h-4 w-4" />
-                    Login to Save
+                    <Save className={`h-5 w-5 ${isSaving ? "animate-pulse" : ""}`} />
                   </Button>
-                </Link>
-              )}
-              <Button variant="outline" size="icon" onClick={handlePrint}>
-                <Printer className="h-5 w-5" />
-              </Button>
-              
-              {/* Share Button */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    title="Share Recipe"
-                  >
-                    <Share2 className="h-5 w-5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem 
-                    onClick={async () => {
-                      if (!recipe) return;
-                      // Try native share first
-                      if (navigator.share) {
-                        try {
-                          await navigator.share({
-                            title: recipe.name,
-                            text: `Check out this beer recipe: ${recipe.name}`,
-                            url: window.location.href,
-                          });
-                          return;
-                        } catch (err: any) {
-                          if (err.name !== "AbortError") {
-                            console.log("Share failed:", err);
+                ) : (
+                  <Link href="/wizard">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-primary hover:bg-primary/10"
+                      title="Login to Save"
+                    >
+                      <Save className="mr-2 h-4 w-4" />
+                      <span className="hidden sm:inline">Login to Save</span>
+                      <span className="sm:hidden">Login</span>
+                    </Button>
+                  </Link>
+                )}
+                <Button variant="outline" size="icon" onClick={handlePrint}>
+                  <Printer className="h-5 w-5" />
+                </Button>
+                
+                {/* Share Button */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      title="Share Recipe"
+                    >
+                      <Share2 className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem 
+                      onClick={async () => {
+                        if (!recipe) return;
+                        // Try native share first
+                        if (navigator.share) {
+                          try {
+                            await navigator.share({
+                              title: recipe.name,
+                              text: `Check out this beer recipe: ${recipe.name}`,
+                              url: window.location.href,
+                            });
+                            return;
+                          } catch (err: any) {
+                            if (err.name !== "AbortError") {
+                              console.log("Share failed:", err);
+                            }
                           }
                         }
-                      }
-                      // Fallback to WhatsApp
-                      const text = `Check out this brew: ${recipe.name} - ${window.location.href}`;
-                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-                    }}
-                  >
-                    <MessageCircle className="mr-2 h-4 w-4" /> WhatsApp
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => {
-                      if (!recipe) return;
-                      const subject = `Beer Recipe: ${recipe.name}`;
-                      const body = `Check out this recipe:\n\n${window.location.href}`;
-                      window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
-                    }}
-                  >
-                    <Mail className="mr-2 h-4 w-4" /> Email
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(window.location.href);
-                        toast.success("Link copied to clipboard!");
-                      } catch (err) {
-                        console.error("Failed to copy:", err);
-                        toast.error("Failed to copy link");
-                      }
-                    }}
-                  >
-                    <LinkIcon className="mr-2 h-4 w-4" /> Copy Link
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                        // Fallback to WhatsApp
+                        const text = `Check out this brew: ${recipe.name} - ${window.location.href}`;
+                        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                      }}
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" /> WhatsApp
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        if (!recipe) return;
+                        const subject = `Beer Recipe: ${recipe.name}`;
+                        const body = `Check out this recipe:\n\n${window.location.href}`;
+                        window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+                      }}
+                    >
+                      <Mail className="mr-2 h-4 w-4" /> Email
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(window.location.href);
+                          toast.success("Link copied to clipboard!");
+                        } catch (err) {
+                          console.error("Failed to copy:", err);
+                          toast.error("Failed to copy link");
+                        }
+                      }}
+                    >
+                      <LinkIcon className="mr-2 h-4 w-4" /> Copy Link
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
 
