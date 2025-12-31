@@ -596,7 +596,7 @@ export default function WizardPage() {
                       <div className="flex items-center gap-2 mb-4">
                         <Droplets className="h-5 w-5 text-blue-400" />
                         <Label className="font-semibold text-blue-400">
-                          Water Profile (Optional)
+                          Source Water Profile (mg/L)
                         </Label>
                       </div>
                       <Tabs 
@@ -699,111 +699,135 @@ export default function WizardPage() {
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             <div>
                               <Label className="text-xs mb-1 block">Calcium (Ca)</Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                placeholder="0"
-                                value={sourceWaterProfile.ca || ""}
-                                onChange={(e) =>
-                                  setSourceWaterProfile({
-                                    ...sourceWaterProfile,
-                                    mode: "expert",
-                                    ca: parseFloat(e.target.value) || undefined,
-                                  })
-                                }
-                                className="h-9 text-sm"
-                              />
-                              <span className="text-xs text-muted-foreground">ppm</span>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="0"
+                                  value={sourceWaterProfile.ca || ""}
+                                  onChange={(e) =>
+                                    setSourceWaterProfile({
+                                      ...sourceWaterProfile,
+                                      mode: "expert",
+                                      ca: parseFloat(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="h-9 text-sm pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                  mg/L
+                                </span>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs mb-1 block">Magnesium (Mg)</Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                placeholder="0"
-                                value={sourceWaterProfile.mg || ""}
-                                onChange={(e) =>
-                                  setSourceWaterProfile({
-                                    ...sourceWaterProfile,
-                                    mode: "expert",
-                                    mg: parseFloat(e.target.value) || undefined,
-                                  })
-                                }
-                                className="h-9 text-sm"
-                              />
-                              <span className="text-xs text-muted-foreground">ppm</span>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="0"
+                                  value={sourceWaterProfile.mg || ""}
+                                  onChange={(e) =>
+                                    setSourceWaterProfile({
+                                      ...sourceWaterProfile,
+                                      mode: "expert",
+                                      mg: parseFloat(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="h-9 text-sm pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                  mg/L
+                                </span>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs mb-1 block">Sodium (Na)</Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                placeholder="0"
-                                value={sourceWaterProfile.na || ""}
-                                onChange={(e) =>
-                                  setSourceWaterProfile({
-                                    ...sourceWaterProfile,
-                                    mode: "expert",
-                                    na: parseFloat(e.target.value) || undefined,
-                                  })
-                                }
-                                className="h-9 text-sm"
-                              />
-                              <span className="text-xs text-muted-foreground">ppm</span>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="0"
+                                  value={sourceWaterProfile.na || ""}
+                                  onChange={(e) =>
+                                    setSourceWaterProfile({
+                                      ...sourceWaterProfile,
+                                      mode: "expert",
+                                      na: parseFloat(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="h-9 text-sm pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                  mg/L
+                                </span>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs mb-1 block">Chloride (Cl)</Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                placeholder="0"
-                                value={sourceWaterProfile.cl || ""}
-                                onChange={(e) =>
-                                  setSourceWaterProfile({
-                                    ...sourceWaterProfile,
-                                    mode: "expert",
-                                    cl: parseFloat(e.target.value) || undefined,
-                                  })
-                                }
-                                className="h-9 text-sm"
-                              />
-                              <span className="text-xs text-muted-foreground">ppm</span>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="0"
+                                  value={sourceWaterProfile.cl || ""}
+                                  onChange={(e) =>
+                                    setSourceWaterProfile({
+                                      ...sourceWaterProfile,
+                                      mode: "expert",
+                                      cl: parseFloat(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="h-9 text-sm pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                  mg/L
+                                </span>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs mb-1 block">Sulfate (SO₄)</Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                placeholder="0"
-                                value={sourceWaterProfile.so4 || ""}
-                                onChange={(e) =>
-                                  setSourceWaterProfile({
-                                    ...sourceWaterProfile,
-                                    mode: "expert",
-                                    so4: parseFloat(e.target.value) || undefined,
-                                  })
-                                }
-                                className="h-9 text-sm"
-                              />
-                              <span className="text-xs text-muted-foreground">ppm</span>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="0"
+                                  value={sourceWaterProfile.so4 || ""}
+                                  onChange={(e) =>
+                                    setSourceWaterProfile({
+                                      ...sourceWaterProfile,
+                                      mode: "expert",
+                                      so4: parseFloat(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="h-9 text-sm pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                  mg/L
+                                </span>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs mb-1 block">Bicarbonate (HCO₃)</Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                placeholder="0"
-                                value={sourceWaterProfile.hco3 || ""}
-                                onChange={(e) =>
-                                  setSourceWaterProfile({
-                                    ...sourceWaterProfile,
-                                    mode: "expert",
-                                    hco3: parseFloat(e.target.value) || undefined,
-                                  })
-                                }
-                                className="h-9 text-sm"
-                              />
-                              <span className="text-xs text-muted-foreground">ppm</span>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="0"
+                                  value={sourceWaterProfile.hco3 || ""}
+                                  onChange={(e) =>
+                                    setSourceWaterProfile({
+                                      ...sourceWaterProfile,
+                                      mode: "expert",
+                                      hco3: parseFloat(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="h-9 text-sm pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                  mg/L
+                                </span>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs mb-1 block">pH (Optional)</Label>

@@ -110,13 +110,16 @@ export interface RecipeData {
   malts?: any;
   hops?: any;
   yeast?: any;
+  extras?: any; // Water agents, process aids, etc.
   mash_schedule?: any;
+  mash_steps?: any;
   boil_instructions?: string[];
   fermentation_instructions?: string[]; // Legacy: Keep for backward compatibility
   fermentationSchedule?: FermentationScheduleStep[]; // New structured schedule
   shopping_list?: any;
   estimatedTime?: string;
   notes?: string;
+  waterProfile?: any; // Water chemistry profile
   predictedFG?: number; // Theoretical final gravity from yeast/recipe
   status: "planned" | "brewing" | "fermenting" | "conditioning" | "completed";
   createdAt: Timestamp;
@@ -125,6 +128,8 @@ export interface RecipeData {
   reviewNotes?: string;
   brewLog?: BrewLog; // Deprecated: Use batches instead
   parentRecipeId?: string; // For versioning: points to original recipe
+  originalAuthorId?: string; // For cloned recipes
+  originalPublicRecipeId?: string; // For cloned recipes from community
 }
 
 export interface UserProfile {
@@ -573,6 +578,135 @@ export async function deleteBatch(
     await deleteDoc(batchRef);
   } catch (error) {
     console.error("Error deleting batch:", error);
+    throw error;
+  }
+}
+
+/**
+ * Publish a recipe to the Community Hub
+ */
+export async function publishRecipe(
+  userId: string,
+  recipeId: string,
+  authorName: string
+): Promise<string> {
+  try {
+    // Get the original recipe
+    const recipe = await getRecipe(userId, recipeId);
+    if (!recipe) {
+      throw new Error("Recipe not found");
+    }
+
+    // Create public recipe document
+    const publicRecipeData = {
+      ...recipe,
+      originalAuthorId: userId,
+      originalRecipeId: recipeId,
+      authorName: authorName,
+      likes: 0,
+      publishedAt: serverTimestamp(),
+      // Remove user-specific fields
+      status: undefined,
+    };
+
+    // Remove undefined values
+    const cleanedData = removeUndefined(publicRecipeData);
+
+    const docRef = await addDoc(collection(db, "public_recipes"), cleanedData);
+    return docRef.id;
+  } catch (error) {
+    console.error("Error publishing recipe:", error);
+    throw error;
+  }
+}
+
+/**
+ * Unpublish a recipe from the Community Hub
+ */
+export async function unpublishRecipe(publicRecipeId: string): Promise<void> {
+  try {
+    const recipeRef = doc(db, "public_recipes", publicRecipeId);
+    await deleteDoc(recipeRef);
+  } catch (error) {
+    console.error("Error unpublishing recipe:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get public recipes from the Community Hub
+ */
+export async function getPublicRecipes(limit: number = 50): Promise<any[]> {
+  try {
+    const publicRecipesRef = collection(db, "public_recipes");
+    const q = query(
+      publicRecipesRef,
+      orderBy("publishedAt", "desc")
+    );
+    const snapshot = await getDocs(q);
+    
+    const recipes: any[] = [];
+    snapshot.forEach((doc) => {
+      if (recipes.length < limit) {
+        recipes.push({ id: doc.id, ...doc.data() });
+      }
+    });
+    
+    return recipes;
+  } catch (error) {
+    console.error("Error fetching public recipes:", error);
+    throw error;
+  }
+}
+
+/**
+ * Clone a public recipe to user's library
+ */
+export async function cloneRecipe(
+  userId: string,
+  publicRecipe: any
+): Promise<string> {
+  try {
+    // Prepare recipe data for cloning (exclude public-specific fields)
+    const { 
+      originalAuthorId, 
+      originalRecipeId, 
+      authorName, 
+      likes, 
+      publishedAt,
+      id,
+      ...recipeData 
+    } = publicRecipe;
+
+    const clonedRecipeData: Omit<RecipeData, "status" | "createdAt"> = {
+      name: `${publicRecipe.name} (Clone)`,
+      description: publicRecipe.description,
+      specs: publicRecipe.specs,
+      ingredients: publicRecipe.ingredients,
+      malts: publicRecipe.malts,
+      hops: publicRecipe.hops,
+      yeast: publicRecipe.yeast,
+      extras: publicRecipe.extras,
+      mash_schedule: publicRecipe.mash_schedule,
+      mash_steps: publicRecipe.mash_steps,
+      boil_instructions: publicRecipe.boil_instructions,
+      fermentation_instructions: publicRecipe.fermentation_instructions,
+      fermentationSchedule: publicRecipe.fermentationSchedule,
+      shopping_list: publicRecipe.shopping_list,
+      estimatedTime: publicRecipe.estimatedTime,
+      notes: publicRecipe.notes ? 
+        `Based on recipe by ${publicRecipe.authorName || "Community"}. Original: ${publicRecipe.name}\n\n${publicRecipe.notes}` :
+        `Based on recipe by ${publicRecipe.authorName || "Community"}. Original: ${publicRecipe.name}`,
+      waterProfile: publicRecipe.waterProfile,
+      // Keep reference to original (as custom fields)
+      originalAuthorId: publicRecipe.originalAuthorId,
+      originalPublicRecipeId: publicRecipe.id,
+    };
+
+    // Use existing saveRecipe function
+    return await saveRecipe(userId, clonedRecipeData);
+  } catch (error) {
+    console.error("Error cloning recipe:", error);
     throw error;
   }
 }

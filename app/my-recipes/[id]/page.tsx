@@ -403,7 +403,7 @@ export default function RecipeDetailPage() {
 
         {/* Recipe Card (Static - Target Values) - Show below active batch or if no active batch */}
         <div className="mb-6">
-          <RecipeCard recipe={recipeForCard} units="metric" />
+          <RecipeCard recipe={recipeForCard} units="metric" recipeId={recipeId} userId={user?.uid} />
         </div>
 
         {/* Action Buttons - Only show if NO active batch */}

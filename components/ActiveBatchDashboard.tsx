@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { BatchData, RecipeData, updateBatch, FermentationScheduleStep } from "@/lib/db";
 import { getEstimatedBottlingDate } from "@/lib/brewing-math";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,16 @@ import { Badge } from "@/components/ui/badge";
 import { Beaker, Calendar, CheckCircle2, Droplets, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
 interface ActiveBatchDashboardProps {
   batch: BatchData & { id: string };
@@ -98,6 +108,19 @@ export function ActiveBatchDashboard({
     recipe.fermentationSchedule.every((step) =>
       batch.fermentationHistory?.some((h) => h.day === step.day && h.type === step.type)
     );
+
+  // Ermittle die Einheit basierend auf den Daten
+  const measurements = batch.measurements || [];
+  const gravityUnit =
+    measurements.length > 0 && measurements.some((m) => Number(m.gravity) > 1.2)
+      ? "Plato"
+      : "SG";
+
+  // Formatierer basierend auf Einheit
+  const formatGravity = (val: number) => {
+    if (gravityUnit === "Plato") return `${val.toFixed(1)}°P`;
+    return val.toFixed(3);
+  };
 
   return (
     <Card className="mb-6 bg-zinc-900 border-zinc-800">
@@ -299,12 +322,19 @@ export function ActiveBatchDashboard({
             {/* Measurements Chart & Table */}
             {batch.measurements && batch.measurements.length > 0 && (
               <div className="mt-6 space-y-4">
-                {/* Simple Chart */}
+                {/* Gravity Over Time Chart */}
                 <div className="p-4 bg-zinc-800/50 rounded-lg">
-                  <h4 className="text-sm font-semibold mb-3">Gravity Over Time</h4>
-                  <div className="h-48 flex items-end justify-between gap-1">
-                    {batch.measurements
-                      .sort((a, b) => {
+                  <h4 className="text-sm font-semibold mb-3">
+                    {gravityUnit === "Plato" ? "Plato" : "Specific Gravity"} Trend
+                  </h4>
+                  {/* Chart Container - WICHTIG: h-[300px] erzwingt die Höhe */}
+                  <div className="w-full h-[300px] mt-4 p-2 bg-zinc-900/30 rounded-lg border border-zinc-800">
+                    {batch.measurements.length > 1 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={useMemo(() => {
+                            // Sortiere Daten chronologisch (älteste zuerst)
+                            const sorted = [...batch.measurements!].sort((a, b) => {
                         const dateA = a.date?.toDate
                           ? a.date.toDate().getTime()
                           : (a.date as any)?.seconds * 1000 || 0;
@@ -312,25 +342,145 @@ export function ActiveBatchDashboard({
                           ? b.date.toDate().getTime()
                           : (b.date as any)?.seconds * 1000 || 0;
                         return dateA - dateB;
-                      })
-                      .map((m, idx) => {
-                        const maxGravity = Math.max(...batch.measurements!.map((mm) => mm.gravity));
-                        const minGravity = Math.min(...batch.measurements!.map((mm) => mm.gravity));
-                        const range = maxGravity - minGravity || 0.01;
-                        const height = ((m.gravity - minGravity) / range) * 100;
+                            });
+                            // Formatiere für Chart - nutze 'temperature' für die rechte Y-Achse
+                            return sorted.map((m) => ({
+                              date: m.date?.toDate
+                                ? m.date.toDate()
+                                : (m.date as any)?.seconds
+                                ? new Date((m.date as any).seconds * 1000)
+                                : new Date(),
+                              gravity: m.gravity,
+                              temperature: m.temp || null,
+                            }));
+                          }, [batch.measurements])}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="colorGravity" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#FFBF00" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#FFBF00" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+
+                          <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+
+                          <XAxis
+                            dataKey="date"
+                            stroke="#666"
+                            tick={{ fontSize: 12, fill: "#71717a" }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(val) => {
+                              if (!val) return "";
+                              const d = val instanceof Date ? val : new Date(val);
+                              return `${d.getDate()}.${d.getMonth() + 1}.`;
+                            }}
+                          />
+
+                          {/* LEFT AXIS: GRAVITY */}
+                          <YAxis
+                            yAxisId="gravity"
+                            stroke="#FFBF00"
+                            domain={["auto", "auto"]}
+                            tick={{ fontSize: 12, fill: "#FFBF00" }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(val) =>
+                              gravityUnit === "Plato" ? val.toFixed(1) : val.toFixed(3)
+                            }
+                            label={{
+                              value: gravityUnit,
+                              angle: -90,
+                              position: "insideLeft",
+                              fill: "#FFBF00",
+                              fontSize: 10,
+                            }}
+                          />
+
+                          {/* RIGHT AXIS: TEMPERATURE */}
+                          <YAxis
+                            yAxisId="temp"
+                            orientation="right"
+                            stroke="#3b82f6"
+                            domain={["auto", "auto"]}
+                            tick={{ fontSize: 12, fill: "#3b82f6" }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(val) => val.toFixed(1) + "°"}
+                          />
+
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: "#18181b",
+                              borderColor: "#3f3f46",
+                              borderRadius: "8px",
+                              color: "#fff",
+                            }}
+                            labelStyle={{ color: "#a1a1aa", marginBottom: "0.5rem" }}
+                            labelFormatter={(label) => {
+                              const d = new Date(
+                                (label as any)?.seconds
+                                  ? (label as any).seconds * 1000
+                                  : label instanceof Date
+                                  ? label
+                                  : new Date(label)
+                              );
                         return (
-                          <div key={idx} className="flex-1 flex flex-col items-center">
-                            <div
-                              className="w-full bg-[#FFBF00] rounded-t transition-all hover:bg-[#FFBF00]/80"
-                              style={{ height: `${height}%` }}
-                              title={`${m.gravity.toFixed(3)} - ${m.date?.toDate ? m.date.toDate().toLocaleDateString() : ""}`}
+                                d.toLocaleDateString() +
+                                " " +
+                                d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                              );
+                            }}
+                            formatter={(value: any, name?: string) => {
+                              if (name === "gravity" || name === "Gravity") {
+                                return [formatGravity(value), gravityUnit];
+                              }
+                              if (name === "temperature" || name === "Temperature") {
+                                return [`${value.toFixed(1)}°C`, "Temp"];
+                              }
+                              return [value, name || ""];
+                            }}
+                          />
+
+                          <Legend verticalAlign="top" height={36} />
+
+                          {/* Gravity Area (Left Axis) */}
+                          <Area
+                            yAxisId="gravity"
+                            type="monotone"
+                            dataKey="gravity"
+                            name={gravityUnit}
+                            stroke="#FFBF00"
+                            strokeWidth={3}
+                            fillOpacity={1}
+                            fill="url(#colorGravity)"
+                            activeDot={{ r: 6, strokeWidth: 0, fill: "#fff" }}
+                          />
+
+                          {/* Temperature Line (Right Axis) */}
+                          {batch.measurements!.some(
+                            (m) => m.temp !== undefined && m.temp !== null
+                          ) && (
+                            <Area
+                              yAxisId="temp"
+                              type="monotone"
+                              dataKey="temperature"
+                              name="Temperature"
+                              stroke="#3b82f6"
+                              strokeWidth={2}
+                              fill="none"
+                              dot={{ r: 3, fill: "#3b82f6" }}
+                              activeDot={{ r: 5 }}
                             />
-                            <span className="text-xs text-muted-foreground mt-1 rotate-45 origin-left">
-                              {idx + 1}
-                            </span>
+                          )}
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-muted-foreground">
+                        Not enough data points to plot graph (need at least 2).
                           </div>
-                        );
-                      })}
+                    )}
                   </div>
                 </div>
 
@@ -340,7 +490,7 @@ export function ActiveBatchDashboard({
                     <thead>
                       <tr className="border-b border-zinc-700">
                         <th className="text-left p-2">Date</th>
-                        <th className="text-left p-2">Gravity</th>
+                        <th className="text-left p-2">{gravityUnit}</th>
                         <th className="text-left p-2">Temp</th>
                       </tr>
                     </thead>
@@ -360,7 +510,7 @@ export function ActiveBatchDashboard({
                             <td className="p-2">
                               {m.date?.toDate ? m.date.toDate().toLocaleDateString() : "N/A"}
                             </td>
-                            <td className="p-2 font-mono">{m.gravity.toFixed(3)}</td>
+                            <td className="p-2 font-mono">{formatGravity(Number(m.gravity))}</td>
                             <td className="p-2">{m.temp ? `${m.temp}°C` : "—"}</td>
                           </tr>
                         ))}

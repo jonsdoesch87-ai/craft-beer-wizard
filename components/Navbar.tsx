@@ -14,7 +14,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { LoginModal } from "@/components/LoginModal";
 import { ActiveBatchesIndicator } from "@/components/ActiveBatchesIndicator";
-import { Beaker, User, LogOut, BookOpen, LogIn } from "lucide-react";
+import { Beaker, User, LogOut, BookOpen, LogIn, Globe } from "lucide-react";
 
 export function Navbar() {
   const { user, loading, logout } = useAuth();
@@ -34,6 +34,12 @@ export function Navbar() {
           ) : user ? (
             <>
               <ActiveBatchesIndicator />
+              <Link href="/community">
+                <Button variant="ghost" className="hidden sm:flex">
+                  <Globe className="mr-2 h-4 w-4" />
+                  Community
+                </Button>
+              </Link>
               <Link href="/my-recipes">
                 <Button variant="ghost" className="hidden sm:flex">
                   <BookOpen className="mr-2 h-4 w-4" />

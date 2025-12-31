@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, Printer, Beaker, ShoppingCart, CheckCircle2, ArrowRight, Droplets, Thermometer, Save, Crown, FlaskConical } from "lucide-react";
-import { useState } from "react";
+import { Heart, Printer, Beaker, ShoppingCart, CheckCircle2, ArrowRight, Droplets, Thermometer, Save, Crown, FlaskConical, Globe, Share2, Link as LinkIcon, Mail, MessageCircle } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { saveRecipe, LimitReachedError } from "@/lib/db";
+import { saveRecipe, LimitReachedError, publishRecipe, unpublishRecipe, getPublicRecipes } from "@/lib/db";
 import { toast } from "sonner";
 import Link from "next/link";
+import { formatBeerColor } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface Recipe {
   name: string;
@@ -149,9 +156,11 @@ export interface Recipe {
 interface RecipeCardProps {
   recipe: Recipe | null;
   units: "metric" | "imperial";
+  recipeId?: string; // Optional: Recipe ID from user's library
+  userId?: string; // Optional: User ID who owns this recipe
 }
 
-export function RecipeCard({ recipe, units }: RecipeCardProps) {
+export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps) {
   const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<number>>(new Set());
@@ -159,8 +168,73 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
   const [activeTab, setActiveTab] = useState("prep");
   const [billOfMaterialsChecked, setBillOfMaterialsChecked] = useState<Set<number>>(new Set());
   const [isExpertMode, setIsExpertMode] = useState<boolean>(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publicRecipeId, setPublicRecipeId] = useState<string | null>(null);
 
   const [showPremiumDialog, setShowPremiumDialog] = useState(false);
+
+  // Check if recipe is published
+  useEffect(() => {
+    if (recipeId && userId && user?.uid === userId) {
+      checkIfPublished();
+    }
+  }, [recipeId, userId, user]);
+
+  const checkIfPublished = async () => {
+    try {
+      const publicRecipes = await getPublicRecipes(1000);
+      const found = publicRecipes.find(
+        (r: any) => r.originalRecipeId === recipeId && r.originalAuthorId === userId
+      );
+      if (found) {
+        setIsPublic(true);
+        setPublicRecipeId(found.id);
+      }
+    } catch (error) {
+      console.error("Error checking publication status:", error);
+    }
+  };
+
+  const handleTogglePublic = async (checked: boolean) => {
+    if (!user || !recipeId || !userId || user.uid !== userId) {
+      toast.error("You can only publish your own recipes");
+      return;
+    }
+
+    if (!recipe) {
+      toast.error("No recipe to publish");
+      return;
+    }
+
+    setIsPublishing(true);
+    try {
+      if (checked) {
+        // Publish
+        const authorName = user.displayName || user.email?.split("@")[0] || "Anonymous Brewer";
+        const pubId = await publishRecipe(userId, recipeId, authorName);
+        setPublicRecipeId(pubId);
+        setIsPublic(true);
+        toast.success("Recipe is now live on the Community Hub! 🌍");
+      } else {
+        // Unpublish
+        if (publicRecipeId) {
+          await unpublishRecipe(publicRecipeId);
+          setIsPublic(false);
+          setPublicRecipeId(null);
+          toast.success("Recipe removed from Community Hub");
+        }
+      }
+    } catch (error) {
+      console.error("Error toggling publication:", error);
+      toast.error("Failed to update publication status");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  // Check if this recipe belongs to the current user
+  const isOwnRecipe = user && userId && user.uid === userId && recipeId;
 
   const handleSave = async () => {
     if (!user) {
@@ -205,6 +279,30 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleShare = async () => {
+    if (!recipe) return;
+
+    const shareData = {
+      title: recipe.name,
+      text: `Check out this beer recipe: ${recipe.name}`,
+      url: window.location.href,
+    };
+
+    // 1. Native Mobile Share
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err: any) {
+        // User cancelled or error occurred - fall through to dropdown
+        if (err.name !== "AbortError") {
+          console.log("Share failed:", err);
+        }
+      }
+    }
+    // Fallback handled via DropdownMenu in JSX
   };
 
   const handleCheckboxChange = (index: number) => {
@@ -318,13 +416,7 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
         <CardHeader className="relative">
           <div className="mb-4 flex items-start justify-between">
             <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                 {/* Beer Color Circle */}
-                <div 
-                  className="h-8 w-8 rounded-full border border-white/10 shadow-sm" 
-                  style={{ backgroundColor: getBeerColor() }} 
-                  title="Estimated Beer Color"
-                />
+              <div className="mb-2">
                 <CardTitle className="text-3xl font-bold text-[#FFBF00] sm:text-4xl">
                   {recipe.name}
                 </CardTitle>
@@ -346,6 +438,24 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                   onCheckedChange={setIsExpertMode}
                 />
               </div>
+              
+              {/* Public Toggle (only for own recipes) */}
+              {isOwnRecipe && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-blue-500/30 bg-blue-500/10">
+                  <Globe className="h-4 w-4 text-blue-400" />
+                  <Label htmlFor="public-toggle" className="text-sm cursor-pointer text-blue-400">
+                    Public 🌍
+                  </Label>
+                  <Switch
+                    id="public-toggle"
+                    checked={isPublic}
+                    onCheckedChange={handleTogglePublic}
+                    disabled={isPublishing}
+                    className="data-[state=checked]:bg-blue-500"
+                  />
+                </div>
+              )}
+
               {user ? (
                 <Button
                   variant="outline"
@@ -373,6 +483,69 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
               <Button variant="outline" size="icon" onClick={handlePrint}>
                 <Printer className="h-5 w-5" />
               </Button>
+              
+              {/* Share Button */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    title="Share Recipe"
+                  >
+                    <Share2 className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem 
+                    onClick={async () => {
+                      if (!recipe) return;
+                      // Try native share first
+                      if (navigator.share) {
+                        try {
+                          await navigator.share({
+                            title: recipe.name,
+                            text: `Check out this beer recipe: ${recipe.name}`,
+                            url: window.location.href,
+                          });
+                          return;
+                        } catch (err: any) {
+                          if (err.name !== "AbortError") {
+                            console.log("Share failed:", err);
+                          }
+                        }
+                      }
+                      // Fallback to WhatsApp
+                      const text = `Check out this brew: ${recipe.name} - ${window.location.href}`;
+                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                    }}
+                  >
+                    <MessageCircle className="mr-2 h-4 w-4" /> WhatsApp
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => {
+                      if (!recipe) return;
+                      const subject = `Beer Recipe: ${recipe.name}`;
+                      const body = `Check out this recipe:\n\n${window.location.href}`;
+                      window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+                    }}
+                  >
+                    <Mail className="mr-2 h-4 w-4" /> Email
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(window.location.href);
+                        toast.success("Link copied to clipboard!");
+                      } catch (err) {
+                        console.error("Failed to copy:", err);
+                        toast.error("Failed to copy link");
+                      }
+                    }}
+                  >
+                    <LinkIcon className="mr-2 h-4 w-4" /> Copy Link
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -384,6 +557,15 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
             <Badge variant="secondary" className="bg-[#4CBB17]/10 text-[#4CBB17] hover:bg-[#4CBB17]/20 border-0 px-3 py-1">
               IBU: {getSpec("ibu")}
             </Badge>
+            {getSpec("srm") && (
+              <Badge variant="outline" className="border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 px-3 py-1">
+                <div
+                  className="h-3 w-3 rounded-full border border-white/10"
+                  style={{ backgroundColor: getBeerColor() }}
+                />
+                {formatBeerColor(getSpec("srm"), units)}
+              </Badge>
+            )}
             <Badge variant="outline" className="border-zinc-700">
               OG: {(() => {
                 const og = getSpec("original_gravity") || recipe.specs?.og || "1.050";
@@ -612,6 +794,69 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                   </div>
                 </div>
 
+                {/* Additives & Extras */}
+                {(() => {
+                  const allExtras = recipe.extras || recipe.ingredients?.extras || [];
+                  if (allExtras.length === 0) return null;
+
+                  // Group extras by type
+                  const waterAgents = allExtras.filter((e: any) => e.type === "water_agent" || (!e.type && e.use === "Mash" && (e.name?.toLowerCase().includes("gypsum") || e.name?.toLowerCase().includes("calcium") || e.name?.toLowerCase().includes("lactic"))));
+                  const processAids = allExtras.filter((e: any) => e.type === "process_aid" || (!e.type && (e.name?.toLowerCase().includes("irish moss") || e.name?.toLowerCase().includes("rice hull") || e.name?.toLowerCase().includes("whirlfloc") || e.name?.toLowerCase().includes("yeast nutrient"))));
+                  const otherExtras = allExtras.filter((e: any) => !waterAgents.includes(e) && !processAids.includes(e));
+
+                  return (
+                    <div className="px-4 pb-4">
+                      <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Additives & Extras</h4>
+                      <div className="rounded-md border border-zinc-800 overflow-hidden space-y-1">
+                        {/* Water Agents */}
+                        {waterAgents.map((extra: any, idx: number) => (
+                          <div key={`water-${idx}`} className="flex items-center justify-between p-2 text-sm odd:bg-blue-500/5 even:bg-blue-500/10 border-l-2 border-blue-500/30">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs bg-blue-500/20 text-blue-300 border-blue-500/50">
+                                Water
+                              </Badge>
+                              <span className="font-medium">{extra.name}</span>
+                            </div>
+                            <span className="text-zinc-300 font-medium">
+                              {extra.amount} {extra.unit || "g"}
+                            </span>
+                          </div>
+                        ))}
+
+                        {/* Process Aids */}
+                        {processAids.map((extra: any, idx: number) => (
+                          <div key={`process-${idx}`} className="flex items-center justify-between p-2 text-sm odd:bg-zinc-900/50 even:bg-transparent">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs bg-zinc-800 text-zinc-300 border-zinc-700">
+                                Process
+                              </Badge>
+                              <span className="font-medium">{extra.name}</span>
+                            </div>
+                            <span className="text-zinc-300 font-medium">
+                              {extra.amount} {extra.unit || "g"}
+                            </span>
+                          </div>
+                        ))}
+
+                        {/* Other Extras (Spices, Herbs, etc.) */}
+                        {otherExtras.map((extra: any, idx: number) => (
+                          <div key={`other-${idx}`} className="flex items-center justify-between p-2 text-sm odd:bg-purple-500/5 even:bg-purple-500/10 border-l-2 border-purple-500/30">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs bg-purple-500/20 text-purple-300 border-purple-500/50">
+                                {extra.type || "Other"}
+                              </Badge>
+                              <span className="font-medium">{extra.name}</span>
+                            </div>
+                            <span className="text-zinc-300 font-medium">
+                              {extra.amount} {extra.unit || "g"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Yeast & Water Details */}
                 <div className="bg-zinc-900/30 p-4 border-t border-zinc-800">
                     <div className="flex items-center justify-between mb-2">
@@ -639,7 +884,7 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                             <Droplets className="h-4 w-4 text-blue-400" />
                             <div className="text-xs font-bold uppercase text-blue-400">Target Water Profile</div>
                           </div>
-                          {recipe.waterProfile.description && (
+                        {recipe.waterProfile.description && (
                             <div className="text-sm font-medium text-[#FFBF00] mb-3">{recipe.waterProfile.description}</div>
                           )}
                           {/* Responsive grid: 2 cols on mobile, 3 on tablet, 6 on desktop */}
@@ -647,40 +892,40 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                             <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
                               <div className="text-muted-foreground mb-0.5">Ca</div>
                               <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.ca || 0} ppm</div>
-                            </div>
+                          </div>
                             <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
                               <div className="text-muted-foreground mb-0.5">Mg</div>
                               <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.mg || 0} ppm</div>
-                            </div>
+                          </div>
                             <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
                               <div className="text-muted-foreground mb-0.5">Na</div>
                               <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.na || 0} ppm</div>
-                            </div>
+                          </div>
                             <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
                               <div className="text-muted-foreground mb-0.5">Cl</div>
                               <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.cl || 0} ppm</div>
-                            </div>
+                          </div>
                             <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
                               <div className="text-muted-foreground mb-0.5">SO₄</div>
                               <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.so4 || 0} ppm</div>
-                            </div>
+                          </div>
                             <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800">
                               <div className="text-muted-foreground mb-0.5">HCO₃</div>
                               <div className="font-mono font-bold text-[#FFBF00]">{recipe.waterProfile.hco3 || 0} ppm</div>
-                            </div>
                           </div>
-                          {recipe.waterProfile.cl > 0 && recipe.waterProfile.so4 > 0 && (
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              Cl:SO₄ Ratio: {(recipe.waterProfile.cl / recipe.waterProfile.so4).toFixed(2)}:1
-                              {recipe.waterProfile.cl > recipe.waterProfile.so4 * 1.5 && (
-                                <span className="ml-2 text-[#FFBF00]">(Chloride-dominant)</span>
-                              )}
-                              {recipe.waterProfile.so4 > recipe.waterProfile.cl * 1.5 && (
-                                <span className="ml-2 text-[#FFBF00]">(Sulfate-dominant)</span>
-                              )}
-                            </div>
-                          )}
                         </div>
+                        {recipe.waterProfile.cl > 0 && recipe.waterProfile.so4 > 0 && (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Cl:SO₄ Ratio: {(recipe.waterProfile.cl / recipe.waterProfile.so4).toFixed(2)}:1
+                            {recipe.waterProfile.cl > recipe.waterProfile.so4 * 1.5 && (
+                              <span className="ml-2 text-[#FFBF00]">(Chloride-dominant)</span>
+                            )}
+                            {recipe.waterProfile.so4 > recipe.waterProfile.cl * 1.5 && (
+                              <span className="ml-2 text-[#FFBF00]">(Sulfate-dominant)</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                         {/* Water Adjustments (extras with type="water_agent") */}
                         {(() => {
@@ -803,6 +1048,29 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                           <span className="font-bold text-[#FFBF00]">{step.temp} / {step.time}</span>
                        </div>
                     ))}
+                    
+                    {/* Mash Extras */}
+                    {(() => {
+                      const allExtras = recipe.extras || recipe.ingredients?.extras || [];
+                      const mashExtras = allExtras.filter((e: any) => e.use === "Mash" || (!e.use && e.type === "water_agent"));
+                      if (mashExtras.length === 0) return null;
+                      
+                      return (
+                        <div className="p-3 bg-blue-500/10 border-l-4 border-blue-500/50">
+                          <div className="text-xs font-bold uppercase text-blue-400 mb-2">Add to Mash</div>
+                          <div className="space-y-1">
+                            {mashExtras.map((extra: any, idx: number) => (
+                              <div key={`mash-extra-${idx}`} className="text-sm text-blue-300">
+                                <span className="font-medium">{extra.amount} {extra.unit || "g"}</span> {extra.name}
+                                {extra.description && (
+                                  <span className="text-xs text-blue-400/70 ml-2">({extra.description})</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>
@@ -816,22 +1084,101 @@ export function RecipeCard({ recipe, units }: RecipeCardProps) {
                 </CardHeader>
                 <CardContent className="p-0">
                    <div className="divide-y divide-zinc-800">
-                      {/* Boil Hops */}
-                      {allHops
-                        .filter(h => (h.boil_time ?? 0) > 0)
-                        .map((hop, idx) => {
-                          const originalIndex = allHops.indexOf(hop);
-                          const adjustedAmount = getAdjustedHopAmount(hop, originalIndex);
-                          return (
-                            <div key={idx} className="flex items-center justify-between p-3 text-sm">
+                      {/* Boil Hops & Extras (merged and sorted by time) */}
+                      {(() => {
+                        const allExtras = recipe.extras || recipe.ingredients?.extras || [];
+                        const boilExtras = allExtras.filter((e: any) => e.use === "Boil");
+                        
+                        // Parse time for extras (e.g., "10 min" -> 10)
+                        const parseTime = (timeStr: string): number => {
+                          if (!timeStr) return 0;
+                          const match = timeStr.match(/(\d+)/);
+                          return match ? parseInt(match[1], 10) : 0;
+                        };
+
+                        // Create combined array with hops and extras
+                        const boilItems: Array<{
+                          type: 'hop' | 'extra';
+                          time: number;
+                          name: string;
+                          amount: string;
+                          data: any;
+                        }> = [];
+
+                        // Add boil hops
+                        allHops
+                          .filter(h => (h.boil_time ?? 0) > 0)
+                          .forEach((hop) => {
+                            const originalIndex = allHops.indexOf(hop);
+                            const adjustedAmount = getAdjustedHopAmount(hop, originalIndex);
+                            boilItems.push({
+                              type: 'hop',
+                              time: hop.boil_time || 0,
+                              name: hop.name,
+                              amount: `${adjustedAmount.toFixed(1)}g`,
+                              data: hop,
+                            });
+                          });
+
+                        // Add boil extras
+                        boilExtras.forEach((extra: any) => {
+                          const time = parseTime(extra.time || "0 min");
+                          boilItems.push({
+                            type: 'extra',
+                            time: time,
+                            name: extra.name,
+                            amount: `${extra.amount} ${extra.unit || "g"}`,
+                            data: extra,
+                          });
+                        });
+
+                        // Sort by time (descending - highest time first)
+                        boilItems.sort((a, b) => b.time - a.time);
+
+                        return boilItems.map((item, idx) => {
+                          if (item.type === 'hop') {
+                            return (
+                              <div key={`hop-${idx}`} className="flex items-center justify-between p-3 text-sm">
                                 <div className="flex items-center gap-3">
-                                   <Badge variant="outline" className="w-16 justify-center bg-zinc-900 text-white border-zinc-700">{hop.boil_time} min</Badge>
-                                   <span className="font-medium">{hop.name}</span>
+                                  <Badge variant="outline" className="w-16 justify-center bg-zinc-900 text-white border-zinc-700">
+                                    {item.time} min
+                                  </Badge>
+                                  <span className="font-medium">{item.name}</span>
                                 </div>
-                                <span className="font-bold">{adjustedAmount.toFixed(1)}g</span>
-                            </div>
-                          );
-                      })}
+                                <span className="font-bold">{item.amount}</span>
+                              </div>
+                            );
+                          } else {
+                            // Extra item
+                            const extraType = item.data.type || "other";
+                            const bgColor = extraType === "water_agent" 
+                              ? "bg-blue-500/10 border-blue-500/30" 
+                              : extraType === "process_aid"
+                              ? "bg-zinc-900/50"
+                              : "bg-purple-500/10 border-purple-500/30";
+                            
+                            return (
+                              <div key={`extra-${idx}`} className={`flex items-center justify-between p-3 text-sm ${bgColor} border-l-4 ${extraType === "water_agent" ? "border-blue-500/50" : extraType === "process_aid" ? "border-zinc-700" : "border-purple-500/50"}`}>
+                                <div className="flex items-center gap-3">
+                                  <Badge variant="outline" className="w-16 justify-center bg-zinc-900 text-white border-zinc-700">
+                                    {item.time} min
+                                  </Badge>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">{item.name}</span>
+                                    {item.data.type && (
+                                      <Badge variant="outline" className="text-xs bg-zinc-800 text-zinc-400 border-zinc-700">
+                                        {item.data.type}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className="font-bold">{item.amount}</span>
+                              </div>
+                            );
+                          }
+                        });
+                      })()}
+                      
                       {/* Whirlpool Hops */}
                       {allHops
                         .filter(h => (h.boil_time ?? 0) === 0 && (h.time?.toLowerCase().includes("whirlpool") || h.time?.toLowerCase().includes("flameout")))

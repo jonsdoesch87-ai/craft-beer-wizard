@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { calculateWaterAdditions, type WaterProfile } from "@/lib/water-math";
 
 // Vercel/Next.js Konfiguration: Längere Laufzeit für komplexe Berechnungen
 export const maxDuration = 60; 
@@ -60,6 +61,60 @@ export async function POST(request: NextRequest) {
 
     // Generate recipe with Chemistry Engine
     const generatedRecipe = await generateRecipeWithAI(formData, openai);
+
+    // --- WATER CHEMISTRY MATH ENGINE (Post-Processing) ---
+    // Ersetze AI-Schätzungen durch präzise Berechnungen (nur Expert Mode mit vollständigen Werten)
+    if (
+      formData.expertise === "expert" &&
+      formData.sourceWaterProfile &&
+      formData.sourceWaterProfile.mode === "expert" &&
+      generatedRecipe.waterProfile
+    ) {
+      // Konvertiere sourceWaterProfile zu WaterProfile (nur Expert Mode hat vollständige Werte)
+      const sourceProfile: Partial<WaterProfile> = {
+        ca: formData.sourceWaterProfile.ca ?? 0,
+        mg: formData.sourceWaterProfile.mg ?? 0,
+        na: formData.sourceWaterProfile.na ?? 0,
+        cl: formData.sourceWaterProfile.cl ?? 0,
+        so4: formData.sourceWaterProfile.so4 ?? 0,
+        hco3: formData.sourceWaterProfile.hco3 ?? 0,
+      };
+
+      const targetProfile: Partial<WaterProfile> = {
+        ca: generatedRecipe.waterProfile.ca ?? 0,
+        mg: generatedRecipe.waterProfile.mg ?? 0,
+        na: generatedRecipe.waterProfile.na ?? 0,
+        cl: generatedRecipe.waterProfile.cl ?? 0,
+        so4: generatedRecipe.waterProfile.so4 ?? 0,
+        hco3: generatedRecipe.waterProfile.hco3 ?? 0,
+      };
+
+      // Konvertiere Batch-Größe zu Litern (falls imperial)
+      const batchSizeLiters =
+        formData.units === "metric"
+          ? formData.batchSize
+          : formData.batchSize * 3.78541; // 1 Gallon = 3.78541 Liter
+
+      // Nutze die Mathe-Engine
+      const mathAdditions = calculateWaterAdditions(
+        sourceProfile,
+        targetProfile,
+        batchSizeLiters
+      );
+
+      // Initialisiere extras falls nicht vorhanden
+      if (!generatedRecipe.extras) {
+        generatedRecipe.extras = [];
+      }
+
+      // Entferne alte "water_agent" Einträge der AI, wir trauen nur der Mathe
+      generatedRecipe.extras = generatedRecipe.extras.filter(
+        (e: any) => e.type !== "water_agent"
+      );
+
+      // Füge die korrekten berechneten Zusätze hinzu
+      generatedRecipe.extras.push(...mathAdditions);
+    }
 
     // --- PHYSICS & SAFETY ENGINE (Post-Processing) ---
     if (generatedRecipe.mash_schedule && Array.isArray(generatedRecipe.mash_schedule)) {
