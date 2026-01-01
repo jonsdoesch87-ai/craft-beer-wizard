@@ -3,25 +3,27 @@ import Stripe from "stripe";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, setDoc, getDoc } from "firebase/firestore";
 
-function getStripe(): Stripe {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
-  if (!secretKey) {
-    throw new Error("STRIPE_SECRET_KEY is not configured");
-  }
-  return new Stripe(secretKey, {
-    apiVersion: "2025-12-15.clover",
-  });
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error("STRIPE_SECRET_KEY is not configured");
 }
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2025-12-15.clover",
+});
+
+if (!process.env.STRIPE_WEBHOOK_SECRET) {
+  throw new Error("STRIPE_WEBHOOK_SECRET is not configured");
+}
+
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
 
-  if (!signature || !webhookSecret) {
+  if (!signature) {
     return NextResponse.json(
-      { error: "Missing signature or webhook secret" },
+      { error: "Missing signature" },
       { status: 400 }
     );
   }
@@ -29,7 +31,6 @@ export async function POST(request: NextRequest) {
   let event: Stripe.Event;
 
   try {
-    const stripe = getStripe();
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err: any) {
     console.error("Webhook signature verification failed:", err.message);
