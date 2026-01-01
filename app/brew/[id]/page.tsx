@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { getRecipe, RecipeData } from "@/lib/db";
+import { getRecipe, RecipeData, getActiveBatch } from "@/lib/db";
 import { BrewSession } from "@/components/BrewSession";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +16,7 @@ export default function BrewDayPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [recipe, setRecipe] = useState<(RecipeData & { id: string }) | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const recipeId = params.id as string;
 
@@ -31,12 +32,24 @@ export default function BrewDayPage() {
     if (!user || !recipeId) return;
     try {
       setLoading(true);
-      const recipeData = await getRecipe(user.uid, recipeId);
+      const [recipeData, activeBatch] = await Promise.all([
+        getRecipe(user.uid, recipeId),
+        getActiveBatch(user.uid, recipeId)
+      ]);
+      
       if (recipeData) {
         setRecipe(recipeData);
       } else {
         toast.error("Recipe not found");
         router.push("/my-recipes");
+        return;
+      }
+      
+      if (activeBatch) {
+        setBatchId(activeBatch.id);
+      } else {
+        toast.error("No active batch found for this recipe");
+        router.push(`/my-recipes/${recipeId}`);
       }
     } catch (error) {
       console.error("Error loading recipe:", error);
@@ -107,7 +120,13 @@ export default function BrewDayPage() {
             </Button>
           </Link>
         </div>
-        <BrewSession recipe={{ ...recipe, id: recipeId }} />
+        {batchId && (
+          <BrewSession 
+            recipe={{ ...recipe, id: recipeId }} 
+            batchId={batchId}
+            userId={user.uid}
+          />
+        )}
       </div>
     </div>
   );

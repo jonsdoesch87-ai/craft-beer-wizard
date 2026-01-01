@@ -11,41 +11,65 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { createUserProfile } from "@/lib/db";
+import { createUserProfile, getUserProfile, UserProfile } from "@/lib/db";
 
 interface AuthContextType {
   user: User | null;
+  userProfile: UserProfile | null;
+  isPro: boolean;
   loading: boolean;
   login: () => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerWithEmail: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUserProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const loadUserProfile = async (userId: string) => {
+    try {
+      const profile = await getUserProfile(userId);
+      setUserProfile(profile);
+    } catch (error) {
+      console.error("Error loading user profile:", error);
+      setUserProfile(null);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
-      setLoading(false);
       
-      // Create user profile if new user
+      // Create user profile if new user and load profile
       if (user) {
         try {
           await createUserProfile(user.uid);
+          await loadUserProfile(user.uid);
         } catch (error) {
           // Profile might already exist, ignore error
           console.log("User profile check:", error);
         }
+      } else {
+        setUserProfile(null);
       }
+      
+      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  const refreshUserProfile = async () => {
+    if (user) {
+      await loadUserProfile(user.uid);
+    }
+  };
 
   const login = async () => {
     const provider = new GoogleAuthProvider();
@@ -110,8 +134,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const isPro = userProfile?.isPro ?? false;
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithEmail, registerWithEmail, logout }}>
+    <AuthContext.Provider 
+      value={{ 
+        user, 
+        userProfile, 
+        isPro,
+        loading, 
+        login, 
+        loginWithEmail, 
+        registerWithEmail, 
+        logout,
+        refreshUserProfile 
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

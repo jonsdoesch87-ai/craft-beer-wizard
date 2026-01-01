@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, Printer, Beaker, ShoppingCart, CheckCircle2, ArrowRight, Droplets, Thermometer, Save, Crown, FlaskConical, Globe, Share2, Link as LinkIcon, Mail, MessageCircle } from "lucide-react";
+import { Heart, Printer, Beaker, ShoppingCart, CheckCircle2, ArrowRight, Droplets, Thermometer, Save, Crown, FlaskConical, Globe, Share2, Link as LinkIcon, Mail, MessageCircle, Download } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { saveRecipe, LimitReachedError, publishRecipe, unpublishRecipe, getPublicRecipes, startNewBatch, updateRecipe, getRecipe, setRecipeVisibility } from "@/lib/db";
@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatBeerColor } from "@/lib/utils";
+import { exportToBeerXML } from "@/lib/beerxml";
 import {
   Dialog,
   DialogContent,
@@ -236,19 +237,12 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
     }
 
     try {
-      // DEBUG: Log share attempt
-      console.log(`[SHARE] Share-Button geklickt:`);
-      console.log(`- userId (Owner): ${userId}`);
-      console.log(`- recipeId: ${recipeId}`);
-      console.log(`- user.uid (current user): ${user.uid}`);
-      
       // 1. Set recipe to public
       await setRecipeVisibility(userId, recipeId, true);
       setIsPublic(true);
       
       // 2. Generate share URL with both IDs (userId = Owner ID!)
       const shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
-      console.log(`[SHARE] Generierter Share-Link: ${shareUrl}`);
       
       // 3. Try native share first
       if (navigator.share) {
@@ -268,7 +262,6 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
       
       // 4. Fallback: Copy to clipboard
       await navigator.clipboard.writeText(shareUrl);
-      console.log(`[SHARE] Link in Zwischenablage kopiert: ${shareUrl}`);
       toast.success("Public link copied to clipboard! 🌍");
     } catch (error) {
       console.error("Error sharing recipe:", error);
@@ -322,6 +315,30 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleBeerXMLExport = () => {
+    if (!recipe) {
+      toast.error("No recipe to export");
+      return;
+    }
+
+    try {
+      const xml = exportToBeerXML(recipe, units);
+      const blob = new Blob([xml], { type: "text/xml;charset=ISO-8859-1" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${(recipe.name || "recipe").replace(/[^a-z0-9]/gi, "_")}_${recipeId || "export"}.xml`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("BeerXML file downloaded! 🍺");
+    } catch (error) {
+      console.error("Error exporting BeerXML:", error);
+      toast.error("Failed to export BeerXML");
+    }
   };
 
   const handleCheckboxChange = (index: number) => {
@@ -507,8 +524,18 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                     </Button>
                   </Link>
                 )}
-                <Button variant="outline" size="icon" onClick={handlePrint}>
+                <Button variant="outline" size="icon" onClick={handlePrint} title="Print Recipe">
                   <Printer className="h-5 w-5" />
+                </Button>
+                
+                {/* BeerXML Export Button */}
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  onClick={handleBeerXMLExport}
+                  title="BeerXML Export (Grainfather/Brewfather)"
+                >
+                  <Download className="h-5 w-5" />
                 </Button>
                 
                 {/* Share Button - Direct action */}
@@ -543,16 +570,12 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                         if (!recipe) return;
                         
                         // Build share URL: /view/[userId]/[recipeId]
-                        // IMPORTANT: userId must be the Owner ID, not the viewer ID!
-                        console.log(`[SHARE DROPDOWN - WhatsApp] userId=${userId}, recipeId=${recipeId}, isPublic=${isPublic}`);
                         let shareUrl: string;
                         if (isPublic && userId && recipeId) {
                           shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
-                          console.log(`[SHARE DROPDOWN - WhatsApp] Generated share URL: ${shareUrl}`);
                         } else {
                           // Fallback: Private Link (only if not public)
                           shareUrl = window.location.href;
-                          console.warn(`[SHARE DROPDOWN - WhatsApp] Recipe not public, using current URL: ${shareUrl}`);
                           toast.info("Make recipe public first to share it!");
                         }
                         
@@ -583,16 +606,12 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                         if (!recipe) return;
                         
                         // Build share URL: /view/[userId]/[recipeId]
-                        // IMPORTANT: userId must be the Owner ID, not the viewer ID!
-                        console.log(`[SHARE DROPDOWN - Email] userId=${userId}, recipeId=${recipeId}, isPublic=${isPublic}`);
                         let shareUrl: string;
                         if (isPublic && userId && recipeId) {
                           shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
-                          console.log(`[SHARE DROPDOWN - Email] Generated share URL: ${shareUrl}`);
                         } else {
                           // Fallback: Private Link
                           shareUrl = window.location.href;
-                          console.warn(`[SHARE DROPDOWN - Email] Recipe not public, using current URL: ${shareUrl}`);
                           toast.info("Make recipe public first to share it!");
                         }
                         
@@ -606,21 +625,16 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                     <DropdownMenuItem 
                       onClick={async () => {
                         // Build share URL: /view/[userId]/[recipeId]
-                        // IMPORTANT: userId must be the Owner ID, not the viewer ID!
-                        console.log(`[SHARE DROPDOWN - Copy Link] userId=${userId}, recipeId=${recipeId}, isPublic=${isPublic}`);
                         let shareUrl: string;
                         if (isPublic && userId && recipeId) {
                           shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
-                          console.log(`[SHARE DROPDOWN - Copy Link] Generated share URL: ${shareUrl}`);
                         } else {
                           // Fallback: Private Link
                           shareUrl = window.location.href;
-                          console.warn(`[SHARE DROPDOWN - Copy Link] Recipe not public, using current URL: ${shareUrl}`);
                         }
                         
                         try {
                           await navigator.clipboard.writeText(shareUrl);
-                          console.log(`[SHARE DROPDOWN - Copy Link] Link copied to clipboard: ${shareUrl}`);
                           if (isPublic && userId && recipeId) {
                             toast.success("Public link copied! Ready to share 🌍");
                           } else {
@@ -678,7 +692,7 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="print:hidden">
-        <TabsList className="mb-6 bg-zinc-900/50 p-1 border border-zinc-800">
+        <TabsList className="mb-6 grid w-full grid-cols-2 bg-zinc-900/50 p-1 border border-zinc-800">
           <TabsTrigger value="prep" className="data-[state=active]:bg-[#FFBF00] data-[state=active]:text-black">Prep & Shopping</TabsTrigger>
           <TabsTrigger value="brewing" className="data-[state=active]:bg-[#FFBF00] data-[state=active]:text-black">Brewing Dashboard</TabsTrigger>
         </TabsList>
@@ -775,34 +789,37 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
             </Card>
           )}
 
-          <Button 
-            onClick={async () => {
-              if (!user || !recipeId || !userId || user.uid !== userId) {
-                toast.error("Please login to start a batch");
-                return;
-              }
-              setIsStartingBatch(true);
-              try {
-                const batchId = await startNewBatch(user.uid, recipeId);
-                toast.success("New batch started! Redirecting to brew session...");
-                router.push(`/brew/${recipeId}`);
-              } catch (error) {
-                console.error("Error starting batch:", error);
-                toast.error("Failed to start batch");
-              } finally {
-                setIsStartingBatch(false);
-              }
-            }}
-            disabled={isStartingBatch || !user || !recipeId || !userId || user.uid !== userId}
-            size="lg" 
-            className="w-full h-14 text-lg font-bold bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90 disabled:opacity-50"
-          >
-            {isStartingBatch ? (
-              <>Starting Batch...</>
-            ) : (
-              <>Start Brew Day <ArrowRight className="ml-2 h-5 w-5" /></>
-            )}
-          </Button>
+          {/* Start Brew Day Button - Only show if user is the owner */}
+          {user && userId && user.uid === userId && recipeId && (
+            <Button 
+              onClick={async () => {
+                if (!user || !recipeId || !userId || user.uid !== userId) {
+                  toast.error("Please login to start a batch");
+                  return;
+                }
+                setIsStartingBatch(true);
+                try {
+                  const batchId = await startNewBatch(user.uid, recipeId);
+                  toast.success("New batch started! Redirecting to brew session...");
+                  router.push(`/brew/${recipeId}`);
+                } catch (error) {
+                  console.error("Error starting batch:", error);
+                  toast.error("Failed to start batch");
+                } finally {
+                  setIsStartingBatch(false);
+                }
+              }}
+              disabled={isStartingBatch}
+              size="lg" 
+              className="w-full h-14 text-lg font-bold bg-[#FFBF00] text-black hover:bg-[#FFBF00]/90 disabled:opacity-50"
+            >
+              {isStartingBatch ? (
+                <>Starting Batch...</>
+              ) : (
+                <>Start Brew Day <ArrowRight className="ml-2 h-5 w-5" /></>
+              )}
+            </Button>
+          )}
         </TabsContent>
 
         {/* Tab 2: Brewing Dashboard */}
@@ -1159,12 +1176,28 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="divide-y divide-zinc-800">
-                    {(recipe.mash_schedule || recipe.mash_steps || []).map((step, idx) => (
-                       <div key={idx} className="flex items-center justify-between p-3 text-sm">
-                          <span className="font-medium">{step.step}</span>
-                          <span className="font-bold text-[#FFBF00]">{step.temp} / {step.time}</span>
-                       </div>
-                    ))}
+                    {(recipe.mash_schedule || recipe.mash_steps || []).map((step, idx) => {
+                      // Highlight Mash In and Mash Out steps for visibility
+                      const isMashIn = step.step?.toLowerCase().includes("mash in") || step.step?.toLowerCase().includes("einmaischen");
+                      const isMashOut = step.step?.toLowerCase().includes("mash out") || step.step?.toLowerCase().includes("abmaischen");
+                      const isCritical = isMashIn || isMashOut;
+                      
+                      return (
+                        <div 
+                          key={idx} 
+                          className={`flex items-center justify-between p-3 text-sm ${
+                            isCritical ? "bg-blue-500/5 border-l-4 border-blue-500/50" : ""
+                          }`}
+                        >
+                          <span className={`font-medium ${isCritical ? "text-blue-300" : ""}`}>
+                            {step.step}
+                          </span>
+                          <span className={`font-bold ${isCritical ? "text-blue-400" : "text-[#FFBF00]"}`}>
+                            {step.temp} / {step.time}
+                          </span>
+                        </div>
+                      );
+                    })}
                     
                     {/* Mash Extras */}
                     {(() => {

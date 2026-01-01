@@ -80,14 +80,7 @@ export default function RecipeDetailPage() {
 
   // Load all data on mount
   useEffect(() => {
-    if (!user) {
-      console.log("[PAGE] Kein User eingeloggt.");
-      return;
-    }
-    
-    if (!authLoading && recipeId) {
-      console.log(`[PAGE LOAD] Starte Laden für Rezept-ID: ${recipeId}`);
-      console.log(`[PAGE LOAD] Nutze User-ID (für Pfad): ${user.uid}`);
+    if (user && !authLoading && recipeId) {
       loadAllData();
     } else if (!authLoading && !user) {
       setLoading(false);
@@ -95,39 +88,22 @@ export default function RecipeDetailPage() {
   }, [user, authLoading, recipeId]);
 
   const loadAllData = async () => {
-    if (!user || !recipeId) {
-      console.log(`[PAGE LOAD ALL DATA] Abgebrochen: user=${!!user}, recipeId=${recipeId}`);
-      return;
-    }
-    
-    console.log(`[PAGE LOAD ALL DATA] Starte loadAllData mit:`);
-    console.log(`- user.uid: ${user.uid}`);
-    console.log(`- recipeId: ${recipeId}`);
+    if (!user || !recipeId) return;
     
     try {
       setLoading(true);
       setLoadingBatches(true);
 
       // Load recipe and batches in parallel
-      console.log(`[PAGE LOAD ALL DATA] Rufe getRecipe auf mit: user.uid=${user.uid}, recipeId=${recipeId}`);
       const [recipeData, batchesData] = await Promise.all([
         getRecipe(user.uid, recipeId),
         getBatches(user.uid, recipeId),
       ]);
 
-      console.log(`[PAGE LOAD ALL DATA] getRecipe Ergebnis:`, recipeData ? "GEFUNDEN" : "NICHT GEFUNDEN");
       if (recipeData) {
-        console.log(`[PAGE LOAD ALL DATA] Rezept erfolgreich geladen. ID: ${recipeData.id}, Name: ${recipeData.name}`);
         setRecipe(recipeData);
       } else {
-        console.error(`[PAGE LOAD ALL DATA] Rezept nicht gefunden für: users/${user.uid}/recipes/${recipeId}`);
-        console.warn(`[PAGE LOAD ALL DATA] HINWEIS: Dies könnte ein geteiltes Rezept sein. Share-Links sollten das Format /view/[userId]/[recipeId] verwenden.`);
-        
-        // Show helpful error message
-        toast.error(
-          "Rezept nicht gefunden. Wenn dies ein geteiltes Rezept ist, verwende bitte den Share-Link mit /view/[userId]/[recipeId]",
-          { duration: 5000 }
-        );
+        toast.error("Recipe not found");
         router.push("/my-recipes");
         return;
       }
@@ -444,22 +420,18 @@ export default function RecipeDetailPage() {
                       Edit Recipe
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Create a new version to modify this recipe without losing the original.
+                      Edit all recipe parameters and setpoints directly.
                     </p>
                   </div>
-                  <Button
-                    onClick={handleCreateVersion}
-                    disabled={isCreatingVersion}
-                    variant="outline"
-                    className="border-[#FFBF00] text-[#FFBF00] hover:bg-[#FFBF00] hover:text-black"
-                  >
-                    {isCreatingVersion ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Copy className="mr-2 h-4 w-4" />
-                    )}
-                    Create Version
-                  </Button>
+                  <Link href={`/my-recipes/${recipeId}/edit`}>
+                    <Button
+                      variant="outline"
+                      className="border-[#FFBF00] text-[#FFBF00] hover:bg-[#FFBF00] hover:text-black"
+                    >
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit Recipe
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>

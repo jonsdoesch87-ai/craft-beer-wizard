@@ -11,9 +11,14 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Play, Pause, RotateCcw, Check, Flame, ThermometerSnowflake, Beaker, Snowflake, Activity, Droplets, ToggleLeft, AlarmClock, CheckCircle2, Settings } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { updateBatch } from "@/lib/db";
+import { useAuth } from "@/context/AuthContext";
 
 interface BrewSessionProps {
   recipe: Recipe & { id?: string; units?: "metric" | "imperial" };
+  batchId?: string;
+  userId?: string;
   onFinish?: () => void;
 }
 
@@ -43,7 +48,9 @@ interface SessionData {
   hopAdditions?: Set<string>;
 }
 
-export function BrewSession({ recipe, onFinish }: BrewSessionProps) {
+export function BrewSession({ recipe, batchId, userId, onFinish }: BrewSessionProps) {
+  const router = useRouter();
+  const { user } = useAuth();
   const recipeId = recipe.id || recipe.name || 'default';
   const storageKey = `brew-session-${recipeId}`;
   
@@ -700,11 +707,31 @@ export function BrewSession({ recipe, onFinish }: BrewSessionProps) {
         }} 
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-4 mb-8">
-          <TabsTrigger value="prep">1. Prep & Weigh</TabsTrigger>
-          <TabsTrigger value="mash">2. Mashing</TabsTrigger>
-          <TabsTrigger value="boil">3. Boil & Hops</TabsTrigger>
-          <TabsTrigger value="chill">4. Chill & Ferment</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4 mb-8 bg-zinc-900/50 p-1 border border-zinc-800">
+          <TabsTrigger 
+            value="prep" 
+            className="data-[state=active]:bg-[#FFBF00] data-[state=active]:text-black border border-zinc-700 data-[state=active]:border-[#FFBF00] font-semibold"
+          >
+            1. Prep & Weigh
+          </TabsTrigger>
+          <TabsTrigger 
+            value="mash"
+            className="data-[state=active]:bg-[#FFBF00] data-[state=active]:text-black border border-zinc-700 data-[state=active]:border-[#FFBF00] font-semibold"
+          >
+            2. Mashing
+          </TabsTrigger>
+          <TabsTrigger 
+            value="boil"
+            className="data-[state=active]:bg-[#FFBF00] data-[state=active]:text-black border border-zinc-700 data-[state=active]:border-[#FFBF00] font-semibold"
+          >
+            3. Boil & Hops
+          </TabsTrigger>
+          <TabsTrigger 
+            value="chill"
+            className="data-[state=active]:bg-[#FFBF00] data-[state=active]:text-black border border-zinc-700 data-[state=active]:border-[#FFBF00] font-semibold"
+          >
+            4. Chill & Ferment
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="prep">
@@ -1297,12 +1324,55 @@ export function BrewSession({ recipe, onFinish }: BrewSessionProps) {
               <Button
                 className="w-full bg-[#4CBB17] text-white hover:bg-[#4CBB17]/90 text-xl py-6"
                 size="lg"
-                onClick={() => {
-                  if (onFinish) {
-                    onFinish();
+                onClick={async () => {
+                  const effectiveUserId = userId || user?.uid;
+                  const effectiveBatchId = batchId;
+                  
+                  if (!effectiveUserId || !effectiveBatchId || !recipeId) {
+                    toast.error("Missing user or batch information");
+                    return;
                   }
-                  clearSessionData();
-                  toast.success("Fermentation started! Good luck with your brew!");
+
+                  try {
+                    // Prepare brewLog updates
+                    const brewLogUpdates: any = {};
+                    if (measuredOG) {
+                      const ogValue = parseFloat(measuredOG);
+                      if (!isNaN(ogValue) && ogValue > 0) {
+                        brewLogUpdates.measuredOG = ogValue;
+                      }
+                    }
+                    if (measuredVolume) {
+                      const volValue = parseFloat(measuredVolume);
+                      if (!isNaN(volValue) && volValue > 0) {
+                        brewLogUpdates.measuredVolume = volValue;
+                      }
+                    }
+                    
+                    // Update batch status to fermenting
+                    const updateData: any = {
+                      status: "fermenting",
+                    };
+                    
+                    if (Object.keys(brewLogUpdates).length > 0) {
+                      updateData.brewLog = brewLogUpdates;
+                    }
+                    
+                    await updateBatch(effectiveUserId, recipeId, effectiveBatchId, updateData);
+                    
+                    clearSessionData();
+                    toast.success("Fermentation started! Redirecting to fermentation dashboard...");
+                    
+                    // Navigate to batch detail page (fermentation dashboard)
+                    router.push(`/my-recipes/${recipeId}/batch/${effectiveBatchId}`);
+                    
+                    if (onFinish) {
+                      onFinish();
+                    }
+                  } catch (error) {
+                    console.error("Error starting fermentation:", error);
+                    toast.error("Failed to start fermentation");
+                  }
                 }}
                 disabled={!yeastPitched || !chillChecklist[2]}
               >

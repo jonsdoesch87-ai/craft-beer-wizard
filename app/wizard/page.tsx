@@ -1060,7 +1060,27 @@ export default function WizardPage() {
                         } catch (error: any) {
                           console.error("Error saving recipe:", error);
                           if (error instanceof LimitReachedError || error?.message === "LIMIT_REACHED" || error?.name === "LimitReachedError") {
-                            toast.error("Recipe limit reached. Please upgrade to Pro.");
+                            toast.error("Recipe limit reached (3 recipes). Upgrade to Pro for unlimited recipes!", {
+                              action: {
+                                label: "Upgrade",
+                                onClick: async () => {
+                                  if (!user) return;
+                                  try {
+                                    const response = await fetch("/api/checkout", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ userId: user.uid }),
+                                    });
+                                    const data = await response.json();
+                                    if (data.url) {
+                                      window.location.href = data.url;
+                                    }
+                                  } catch (err) {
+                                    console.error("Checkout error:", err);
+                                  }
+                                },
+                              },
+                            });
                           } else {
                             toast.error("Failed to save recipe");
                           }

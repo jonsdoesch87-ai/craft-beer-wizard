@@ -58,12 +58,18 @@ export interface BatchData {
   status: "brewing" | "fermenting" | "conditioning" | "completed";
   startedAt: Timestamp;
   completedAt?: Timestamp;
+  // Cellar management
+  bottledVolume?: number; // in liters
+  bottledDate?: Timestamp;
+  bottleCount?: number; // Optional: number of bottles
+  isArchived?: boolean; // true when batch is consumed/empty
   // Snapshot of recipe at batch start (in case recipe changes later)
   recipeSnapshot?: {
     targetOG?: number;
     targetFG?: number;
     targetABV?: number;
     targetIBU?: number;
+    beerStyle?: string; // For maturity calculation
   };
   // Brew day data
   brewLog?: BrewLog;
@@ -121,6 +127,8 @@ export interface RecipeData {
   notes?: string;
   waterProfile?: any; // Water chemistry profile
   predictedFG?: number; // Theoretical final gravity from yeast/recipe
+  conditioning_days_min?: number; // Minimum conditioning days after bottling
+  conditioning_days_max?: number; // Maximum days before quality degradation
   status: "planned" | "brewing" | "fermenting" | "conditioning" | "completed";
   createdAt: Timestamp;
   updatedAt?: Timestamp;
@@ -135,6 +143,9 @@ export interface RecipeData {
 
 export interface UserProfile {
   isPro: boolean;
+  subscriptionStatus?: "active" | "trialing" | "canceled" | "past_due" | "incomplete";
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
   createdAt: Timestamp;
 }
 
@@ -217,8 +228,8 @@ export async function saveRecipe(userId: string, recipeData: Omit<RecipeData, "s
     const recipesSnapshot = await getDocs(recipesRef);
     const recipeCount = recipesSnapshot.size;
 
-    // Check limit: Free users can only save 100 recipes (temporarily increased)
-    if (recipeCount >= 100 && !isPro) {
+    // Check limit: Free users can only save 3 recipes
+    if (recipeCount >= 3 && !isPro) {
       throw new LimitReachedError("LIMIT_REACHED");
     }
 
@@ -257,27 +268,19 @@ export async function getUserRecipes(userId: string): Promise<(RecipeData & { id
 
 export async function getRecipe(userId: string, recipeId: string): Promise<(RecipeData & { id: string }) | null> {
   try {
-    // DEBUG LOG HINZUFÜGEN:
-    console.log(`[DB CHECK] Versuche Rezept zu laden:`);
-    console.log(`- Pfad: users/${userId}/recipes/${recipeId}`);
-    console.log(`- userId Parameter: ${userId}`);
-    console.log(`- recipeId Parameter: ${recipeId}`);
-    
     const recipeRef = doc(db, "users", userId, "recipes", recipeId);
     const recipeSnap = await getDoc(recipeRef);
 
     if (!recipeSnap.exists()) {
-      console.error(`[DB ERROR] Dokument existiert nicht unter: users/${userId}/recipes/${recipeId}`);
       return null;
     }
     
-    console.log(`[DB SUCCESS] Dokument gefunden unter: users/${userId}/recipes/${recipeId}`);
     return {
       id: recipeSnap.id,
       ...(recipeSnap.data() as RecipeData),
     };
   } catch (error) {
-    console.error(`[DB ERROR] Fehler beim Laden des Rezepts von users/${userId}/recipes/${recipeId}:`, error);
+    console.error("Error fetching recipe:", error);
     throw error;
   }
 }
@@ -289,36 +292,26 @@ export async function getRecipe(userId: string, recipeId: string): Promise<(Reci
  */
 export async function getSharedRecipe(userId: string, recipeId: string): Promise<(RecipeData & { id: string }) | null> {
   try {
-    // DEBUG LOG HINZUFÜGEN:
-    console.log(`[DB CHECK - SHARED] Versuche geteiltes Rezept zu laden:`);
-    console.log(`- Pfad: users/${userId}/recipes/${recipeId}`);
-    console.log(`- userId Parameter (Owner): ${userId}`);
-    console.log(`- recipeId Parameter: ${recipeId}`);
-    
     const recipeRef = doc(db, "users", userId, "recipes", recipeId);
     const recipeSnap = await getDoc(recipeRef);
 
     if (!recipeSnap.exists()) {
-      console.error(`[DB ERROR - SHARED] Dokument existiert nicht unter: users/${userId}/recipes/${recipeId}`);
       return null;
     }
     
     const data = recipeSnap.data() as RecipeData;
-    console.log(`[DB CHECK - SHARED] Dokument gefunden. isPublic Status: ${data.isPublic}`);
     
     // Only return if recipe is public
     if (data.isPublic === true) {
-      console.log(`[DB SUCCESS - SHARED] Rezept ist öffentlich und wird zurückgegeben.`);
       return {
         id: recipeSnap.id,
         ...data,
       };
     }
     
-    console.log(`[DB ERROR - SHARED] Rezept ist nicht öffentlich (isPublic: ${data.isPublic})`);
     return null; // Recipe is private
   } catch (error) {
-    console.error(`[DB ERROR - SHARED] Fehler beim Laden des geteilten Rezepts von users/${userId}/recipes/${recipeId}:`, error);
+    console.error("Error fetching shared recipe:", error);
     throw error;
   }
 }
@@ -418,6 +411,7 @@ export async function startNewBatch(
         targetFG: recipe.specs?.fg || recipe.specs?.final_gravity,
         targetABV: recipe.specs?.abv,
         targetIBU: recipe.specs?.ibu,
+        beerStyle: recipe.name, // Use recipe name as beer style fallback for maturity calculation
       },
     };
 

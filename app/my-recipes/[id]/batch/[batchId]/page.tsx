@@ -48,6 +48,8 @@ export default function BatchDetailPage() {
   );
   const [rating, setRating] = useState(0);
   const [reviewNotes, setReviewNotes] = useState("");
+  const [bottledVolumeLiters, setBottledVolumeLiters] = useState("");
+  const [bottleCount, setBottleCount] = useState("");
   const recipeId = params.id as string;
   const batchId = params.batchId as string;
 
@@ -338,6 +340,38 @@ export default function BatchDetailPage() {
                 </div>
               </div>
 
+              {/* Bottled Volume Input - For Cellar Management */}
+              <div className="space-y-2 border-t border-zinc-700 pt-4">
+                <Label className="text-[#FFBF00] font-semibold">Bottled Quantity (for Cellar)</Label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Total Volume (L)</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={bottledVolumeLiters}
+                      onChange={(e) => setBottledVolumeLiters(e.target.value)}
+                      placeholder="e.g. 19.5"
+                      className="bg-zinc-800 border-zinc-700"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Bottle Count (optional)</Label>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={bottleCount}
+                      onChange={(e) => setBottleCount(e.target.value)}
+                      placeholder="e.g. 60"
+                      className="bg-zinc-800 border-zinc-700"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional: Number of bottles
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label>Carbonation Method</Label>
                 <Select
@@ -542,11 +576,18 @@ export default function BatchDetailPage() {
                       carbonationAmount = calculateSugar(volumeValue, tempValue, targetCO2Value);
                     }
 
-                    const { serverTimestamp } = await import("firebase/firestore");
+                    const { Timestamp } = await import("firebase/firestore");
+                    
+                    const now = Timestamp.now();
+                    const bottledVol = parseFloat(bottledVolumeLiters) || volumeValue;
+                    const bottleCountNum = bottleCount ? parseInt(bottleCount) : undefined;
                     
                     await updateBatch(user.uid, recipeId, batch.id, {
                       status: "completed",
-                      completedAt: serverTimestamp() as any,
+                      completedAt: now,
+                      bottledVolume: bottledVol,
+                      bottledDate: now,
+                      bottleCount: bottleCountNum,
                       carbonationMethod: carbonationMethod,
                       brewLog: {
                         ...batch.brewLog,

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getUserRecipes, updateRecipeRating, deleteRecipe, RecipeData } from "@/lib/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,9 +21,10 @@ import { Star, Trash2, Calendar, Beaker, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 
-export default function MyRecipesPage() {
+function MyRecipesContent() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const { user, loading: authLoading, refreshUserProfile } = useAuth();
   const [recipes, setRecipes] = useState<(RecipeData & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null);
@@ -38,6 +39,24 @@ export default function MyRecipesPage() {
       setLoading(false);
     }
   }, [user, authLoading]);
+
+  // Handle successful checkout redirect
+  useEffect(() => {
+    const sessionId = searchParams.get("session_id");
+    if (sessionId && user) {
+      // Refresh user profile to check if upgrade was successful
+      refreshUserProfile().then(() => {
+        toast.success("Welcome to Craft Beer Wizard Pro! 🎉");
+        // Remove session_id from URL
+        router.replace("/my-recipes");
+      });
+    }
+    const canceled = searchParams.get("canceled");
+    if (canceled === "true") {
+      toast.info("Checkout canceled");
+      router.replace("/my-recipes");
+    }
+  }, [searchParams, user, refreshUserProfile, router]);
 
   const loadRecipes = async () => {
     if (!user) return;
@@ -312,6 +331,18 @@ export default function MyRecipesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MyRecipesPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[#FFBF00]" />
+      </div>
+    }>
+      <MyRecipesContent />
+    </Suspense>
   );
 }
 
