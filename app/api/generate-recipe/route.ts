@@ -41,6 +41,8 @@ export interface RecipeRequest {
   useAscorbicAcid?: boolean; // Anti-Oxidant
   useLactose?: boolean; // Non-fermentable sugar
   useDryHop?: boolean;
+  useSpices?: boolean; // Spices, herbs, coffee, etc.
+  useWood?: boolean; // Wood chips or cubes
 }
 
 export async function POST(request: NextRequest) {
@@ -269,11 +271,30 @@ Include a note explaining: "Estimated from ${formData.sourceWaterProfile.locatio
   if (formData.equipment === "pot") efficiency = "65% (BIAB)";
   else if (formData.equipment === "professional") efficiency = "85%";
 
-  // 4. Add-on Logic
+  // 4. Add-on Logic - "The Brewer is Boss" (Respect User Choices)
   let addonRules = "";
-  if (formData.useIrishMoss) addonRules += "- Add 'Irish Moss' or 'Whirlfloc' to extras (type: 'process_aid', use: 'Boil').\n";
-  if (formData.useLactose) addonRules += "- Add 'Lactose' to extras (type: 'sugar', use: 'Boil').\n";
-  if (formData.useAscorbicAcid) addonRules += "- Add 'Ascorbic Acid' to extras (type: 'water_agent', use: 'Bottling').\n";
+  
+  // Flavor Profile Additions (Creative)
+  if (formData.useLactose) {
+    addonRules += "- Add 'Lactose' to extras (type: 'sugar', use: 'Boil').\n";
+  }
+  if (formData.useFruit) {
+    addonRules += "- Add appropriate fruit (puree, peel, or juice) to extras (type: 'other' or 'spice', use: 'Boil' or 'Secondary').\n";
+  }
+  if (formData.useSpices) {
+    addonRules += "- Add spices/herbs/coffee as appropriate to extras (type: 'spice' or 'herb', use: 'Boil' or 'Secondary').\n";
+  }
+  if (formData.useWood) {
+    addonRules += "- Add wood chips or cubes to extras (type: 'other', use: 'Secondary').\n";
+  }
+  
+  // Process Techniques (STRICT: Only if user checked)
+  if (formData.useIrishMoss) {
+    addonRules += "- Add 'Irish Moss' or 'Whirlfloc' to extras (type: 'process_aid', use: 'Boil').\n";
+  }
+  if (formData.useAscorbicAcid) {
+    addonRules += "- Add 'Ascorbic Acid' to extras (type: 'water_agent', use: 'Bottling').\n";
+  }
   
   // --- SYSTEM PROMPT ---
   const systemPrompt = `You are the "Craft Beer Wizard", a Master Brewer and Water Chemist.
@@ -296,6 +317,28 @@ YOUR MISSION: Create a chemically precise, brewable recipe.
 3. **Physics & Safety Rules:**
    - **Stuck Sparge Prevention:** IF 'malts' contains >20% Wheat, Rye, or Oats combined, YOU MUST ADD "Rice Hulls" to 'extras' (type: "process_aid", use: "Mash", amount: ~5% of grain bill).
    - **Nutrients:** If ABV > 8% or High Adjuncts, add "Yeast Nutrient" (type: "process_aid").
+
+--- USER CHOICE RESPECT (CRITICAL: "The Brewer is Boss") ---
+**NEVER override user choices. The user knows what they want.**
+
+1. **Dry Hopping:**
+   - IF user checked Dry Hopping: You MUST include a dry hop step in the fermentation schedule.
+   - IF user did NOT check Dry Hopping: You MUST NOT include dry hops, even if the style implies it (e.g., for an IPA). The user might want a 'Classic IPA' without dry hop.
+
+2. **Whirlpool / Hop Stand:**
+   - IF user checked Whirlpool: Plan for a specific Whirlpool/Hop Stand step at ~80°C after boil (understand that 'Whirlpool' in homebrewing often implies a 'Hop Stand' at 80°C).
+   - IF user did NOT check Whirlpool: Do not add a specific Whirlpool/Hop Stand step. Put aroma hops at '5 min' or 'Flameout' instead.
+
+3. **Irish Moss / Clarification:**
+   - IF user checked Irish Moss: Add 'Irish Moss' or 'Whirlfloc' to extras (type: 'process_aid', use: 'Boil').
+   - IF user did NOT check Irish Moss: Do not add Irish Moss to the ingredients, even if style might benefit from clarity.
+
+4. **Water Chemistry:**
+   - IF user is in Expert Mode AND provided sourceWaterProfile: Calculate and add water agents to extras.
+   - IF user did NOT enable Water Chemistry OR is not in Expert Mode: Do not generate water agent additions (unless style absolutely requires minimal adjustment - but prefer not to).
+
+5. **Flavor Additions (Spices, Fruit, Wood, Lactose):**
+   - Only add these IF the user explicitly checked them. Do not add them "because the style typically uses them" if the user did not check the box.
 
 4. **Water Chemistry (Expert Mode):**
    - If source water is provided, use the estimation logic based on the mode:
@@ -335,6 +378,22 @@ YOUR MISSION: Create a chemically precise, brewable recipe.
   "notes": "String"
 }`;
 
+  // Add explicit rules for Dry Hop and Whirlpool to userPrompt
+  let techniqueRules = "";
+  if (formData.useDryHop) {
+    techniqueRules += "REQUIRED: Include a dry hop step in the fermentation schedule.\n";
+  } else {
+    techniqueRules += "IMPORTANT: Do NOT include dry hops in this recipe, even if the style typically uses them.\n";
+  }
+  if (formData.useWhirlpool) {
+    techniqueRules += "REQUIRED: Include a Whirlpool/Hop Stand step at ~80°C after boil for hop aroma.\n";
+  } else {
+    techniqueRules += "IMPORTANT: Do NOT create a Whirlpool step. Put aroma hops at '5 min' or 'Flameout' instead.\n";
+  }
+  if (!formData.useIrishMoss) {
+    techniqueRules += "IMPORTANT: Do NOT add Irish Moss or any clarification agents.\n";
+  }
+
   const userPrompt = `
 Generate a ${formData.expertise} recipe for: ${formData.beerStyle}
 Flavor: ${formData.flavorProfile}
@@ -345,10 +404,13 @@ ${waterInstruction}
 ${adjunctInstruction}
 ${addonRules}
 
+${techniqueRules}
+
 Constraints:
 1. Return strictly valid JSON.
 2. Check for "Stuck Sparge" risk (Wheat/Oats) and add Rice Hulls if needed.
 3. If Expert, be precise with Water Agents.
+4. RESPECT all user choices above. Do not add techniques or ingredients that were not explicitly requested.
 `;
 
   try {

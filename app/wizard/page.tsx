@@ -60,6 +60,8 @@ interface WizardData {
   useAscorbicAcid: boolean;
   useLactose: boolean;
   useDryHop: boolean;
+  useSpices: boolean;
+  useWood: boolean;
   sourceWaterProfile?: SourceWaterProfile;
 }
 
@@ -127,6 +129,8 @@ export default function WizardPage() {
     useAscorbicAcid: false,
     useLactose: false,
     useDryHop: false,
+    useSpices: false,
+    useWood: false,
   });
 
   // Source Water Profile State (Smart Input with Tabs)
@@ -859,70 +863,103 @@ export default function WizardPage() {
                 {formData.expertise !== "beginner" && (
                   <>
                     <div className="h-px bg-zinc-800 my-6" />
-                    <div className="bg-[#FFBF00]/5 border border-[#FFBF00]/20 rounded-lg p-4">
-                      <Label className="block mb-4 font-semibold text-[#FFBF00]">
-                        Professional Add-ons & Techniques
-                      </Label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="whirlpool"
-                            checked={formData.useWhirlpool}
-                            onCheckedChange={(c) => updateData("useWhirlpool", !!c)}
-                          />
-                          <Label htmlFor="whirlpool" className="font-normal cursor-pointer text-sm">
-                            Whirlpool Hop
-                          </Label>
+                    <div className="space-y-6">
+                      {/* Bereich A: Flavor Profile */}
+                      <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4">
+                        <Label className="block mb-4 font-semibold text-purple-400">
+                          Flavor Profile (Creative)
+                        </Label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="lactose"
+                              checked={formData.useLactose}
+                              onCheckedChange={(c) => updateData("useLactose", !!c)}
+                            />
+                            <Label htmlFor="lactose" className="font-normal cursor-pointer text-sm" title="Milk Sugar for sweetness">
+                              Lactose
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="fruit"
+                              checked={formData.useFruit}
+                              onCheckedChange={(c) => updateData("useFruit", !!c)}
+                            />
+                            <Label htmlFor="fruit" className="font-normal cursor-pointer text-sm" title="Puree, Peel or Juice">
+                              Fruit
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="spices"
+                              checked={formData.useSpices}
+                              onCheckedChange={(c) => updateData("useSpices", !!c)}
+                            />
+                            <Label htmlFor="spices" className="font-normal cursor-pointer text-sm" title="Herbs, Coffee, Cinnamon...">
+                              Spices
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="wood"
+                              checked={formData.useWood}
+                              onCheckedChange={(c) => updateData("useWood", !!c)}
+                            />
+                            <Label htmlFor="wood" className="font-normal cursor-pointer text-sm" title="Chips or Cubes">
+                              Wood/Oak
+                            </Label>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="dryhop"
-                            checked={formData.useDryHop}
-                            onCheckedChange={(c) => updateData("useDryHop", !!c)}
-                          />
-                          <Label htmlFor="dryhop" className="font-normal cursor-pointer text-sm">
-                            Dry Hopping
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="fruit"
-                            checked={formData.useFruit}
-                            onCheckedChange={(c) => updateData("useFruit", !!c)}
-                          />
-                          <Label htmlFor="fruit" className="font-normal cursor-pointer text-sm">
-                            Add Fruit
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="irishmoss"
-                            checked={formData.useIrishMoss}
-                            onCheckedChange={(c) => updateData("useIrishMoss", !!c)}
-                          />
-                          <Label htmlFor="irishmoss" className="font-normal cursor-pointer text-sm">
-                            Irish Moss
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="lactose"
-                            checked={formData.useLactose}
-                            onCheckedChange={(c) => updateData("useLactose", !!c)}
-                          />
-                          <Label htmlFor="lactose" className="font-normal cursor-pointer text-sm">
-                            Lactose
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="ascorbic"
-                            checked={formData.useAscorbicAcid}
-                            onCheckedChange={(c) => updateData("useAscorbicAcid", !!c)}
-                          />
-                          <Label htmlFor="ascorbic" className="font-normal cursor-pointer text-sm">
-                            Ascorbic Acid
-                          </Label>
+                      </div>
+
+                      {/* Bereich B: Brewing Techniques */}
+                      <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
+                        <Label className="block mb-4 font-semibold text-blue-400">
+                          Brewing Techniques (Process)
+                        </Label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="whirlpool"
+                              checked={formData.useWhirlpool}
+                              onCheckedChange={(c) => updateData("useWhirlpool", !!c)}
+                            />
+                            <Label htmlFor="whirlpool" className="font-normal cursor-pointer text-sm" title="Adds hops at ~80°C for aroma without bitterness. Recommended for NEIPA/IPA.">
+                              Whirlpool / Hop Stand
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="dryhop"
+                              checked={formData.useDryHop}
+                              onCheckedChange={(c) => updateData("useDryHop", !!c)}
+                            />
+                            <Label htmlFor="dryhop" className="font-normal cursor-pointer text-sm" title="Adding hops during fermentation.">
+                              Dry Hopping
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="irishmoss"
+                              checked={formData.useIrishMoss}
+                              onCheckedChange={(c) => updateData("useIrishMoss", !!c)}
+                            />
+                            <Label htmlFor="irishmoss" className="font-normal cursor-pointer text-sm" title="Add fining agents to boil for clearer beer.">
+                              Clarification (Irish Moss)
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="waterchem"
+                              checked={formData.expertise === "expert" && !!formData.sourceWaterProfile}
+                              disabled={true}
+                              title={formData.expertise !== "expert" ? "Available in Expert Mode only" : "Calculate exact salt additions."}
+                            />
+                            <Label htmlFor="waterchem" className="font-normal cursor-pointer text-sm text-muted-foreground" title={formData.expertise !== "expert" ? "Available in Expert Mode only" : "Calculate exact salt additions."}>
+                              Water Chemistry
+                            </Label>
+                          </div>
                         </div>
                       </div>
                     </div>

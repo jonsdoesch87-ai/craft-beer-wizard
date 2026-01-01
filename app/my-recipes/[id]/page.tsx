@@ -80,7 +80,14 @@ export default function RecipeDetailPage() {
 
   // Load all data on mount
   useEffect(() => {
-    if (user && !authLoading && recipeId) {
+    if (!user) {
+      console.log("[PAGE] Kein User eingeloggt.");
+      return;
+    }
+    
+    if (!authLoading && recipeId) {
+      console.log(`[PAGE LOAD] Starte Laden für Rezept-ID: ${recipeId}`);
+      console.log(`[PAGE LOAD] Nutze User-ID (für Pfad): ${user.uid}`);
       loadAllData();
     } else if (!authLoading && !user) {
       setLoading(false);
@@ -88,20 +95,32 @@ export default function RecipeDetailPage() {
   }, [user, authLoading, recipeId]);
 
   const loadAllData = async () => {
-    if (!user || !recipeId) return;
+    if (!user || !recipeId) {
+      console.log(`[PAGE LOAD ALL DATA] Abgebrochen: user=${!!user}, recipeId=${recipeId}`);
+      return;
+    }
+    
+    console.log(`[PAGE LOAD ALL DATA] Starte loadAllData mit:`);
+    console.log(`- user.uid: ${user.uid}`);
+    console.log(`- recipeId: ${recipeId}`);
+    
     try {
       setLoading(true);
       setLoadingBatches(true);
 
       // Load recipe and batches in parallel
+      console.log(`[PAGE LOAD ALL DATA] Rufe getRecipe auf mit: user.uid=${user.uid}, recipeId=${recipeId}`);
       const [recipeData, batchesData] = await Promise.all([
         getRecipe(user.uid, recipeId),
         getBatches(user.uid, recipeId),
       ]);
 
+      console.log(`[PAGE LOAD ALL DATA] getRecipe Ergebnis:`, recipeData ? "GEFUNDEN" : "NICHT GEFUNDEN");
       if (recipeData) {
+        console.log(`[PAGE LOAD ALL DATA] Rezept erfolgreich geladen. ID: ${recipeData.id}, Name: ${recipeData.name}`);
         setRecipe(recipeData);
       } else {
+        console.error(`[PAGE LOAD ALL DATA] Rezept nicht gefunden für: users/${user.uid}/recipes/${recipeId}`);
         toast.error("Recipe not found");
         router.push("/my-recipes");
         return;
@@ -645,8 +664,8 @@ export default function RecipeDetailPage() {
                     <SelectContent>
                       <SelectItem value="sugar">Household Sugar (Sucrose)</SelectItem>
                       <SelectItem value="dextrose">Dextrose (Glucose)</SelectItem>
-                      <SelectItem value="speise">Speise (Gyle)</SelectItem>
                       <SelectItem value="drops">Carbonation Drops</SelectItem>
+                      <SelectItem value="speise" disabled>Speise (Gyle) - Experimental</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -656,63 +675,109 @@ export default function RecipeDetailPage() {
               {carbonationMethod === "priming" &&
                 activeBatch &&
                 (() => {
+                  // Helper: Calculate residual CO2 based on temperature (in g/L)
+                  // Vereinfachte Näherung für Hobbybrauer
+                  const getResidualCO2 = (tempC: number): number => {
+                    return 1.57 * Math.pow(0.97, tempC);
+                  };
+
+                  // Calculate sugar needed for carbonation
+                  const calculateSugar = (
+                    volumeL: number,
+                    tempC: number,
+                    targetCO2gL: number
+                  ): number => {
+                    const residualCO2 = getResidualCO2(tempC);
+                    const neededCO2 = Math.max(0, targetCO2gL - residualCO2);
+                    // 1g Haushaltszucker (Saccharose) erzeugt ca. 0.495g CO2
+                    const sugarNeededGrams = (neededCO2 * volumeL) / 0.495;
+                    return Math.round(sugarNeededGrams * 10) / 10; // Auf 1 Dezimalstelle runden
+                  };
+
                   const targetCO2Value = parseFloat(targetCO2) || 2.4;
                   const tempValue = parseFloat(beerTemp) || 20;
-                  const volumeValue =
-                    parseFloat(bottlingVolume) || activeBatch.brewLog?.measuredVolume || 20;
-                  const restCO2 =
-                    3.0378 - 0.05007 * tempValue + 0.00026555 * tempValue * tempValue;
-                  const neededCO2 = targetCO2Value - restCO2;
+                  // CRITICAL: Use bottlingVolume from input field (user can modify)
+                  const volumeValue = parseFloat(bottlingVolume) || 20;
 
                   let result: {
                     sugar?: number;
                     dextrose?: number;
-                    speise?: number;
                     drops?: number;
                   } = {};
 
-                  if (carbonationType === "speise") {
-                    const measuredOGValue = activeBatch.brewLog?.measuredOG || 1.050;
-                    const extractPlato = (measuredOGValue - 1) * 250;
-                    const speiseNeeded = (neededCO2 * volumeValue) / (extractPlato * 0.5);
-                    result.speise = speiseNeeded;
-                  } else if (carbonationType === "dextrose") {
-                    const sugarNeeded = (neededCO2 * volumeValue * 4) / 1.15;
-                    result.dextrose = sugarNeeded;
+                  // Calculate dosing rate (per liter, independent of total volume)
+                  let dosingRate: number | null = null;
+
+                  if (carbonationType === "dextrose") {
+                    // Dextrose (Glucose) erzeugt etwas weniger CO2, Faktor 0.5 statt 0.495
+                    const residualCO2 = getResidualCO2(tempValue);
+                    const neededCO2 = Math.max(0, targetCO2Value - residualCO2);
+                    const dextroseNeeded = (neededCO2 * volumeValue) / 0.5;
+                    result.dextrose = Math.round(dextroseNeeded * 10) / 10;
+                    // Calculate dosing rate: per liter
+                    dosingRate = (neededCO2 * 1) / 0.5; // For 1 liter
+                    dosingRate = Math.round(dosingRate * 10) / 10;
                   } else if (carbonationType === "drops") {
                     const bottles = (volumeValue * 1000) / 330;
                     result.drops = Math.ceil(bottles);
                   } else {
-                    const sugarNeeded = neededCO2 * volumeValue * 4;
-                    result.sugar = sugarNeeded;
+                    // Default: Household Sugar (Sucrose)
+                    result.sugar = calculateSugar(volumeValue, tempValue, targetCO2Value);
+                    // Calculate dosing rate: per liter (calculate for 1L directly for precision)
+                    const residualCO2 = getResidualCO2(tempValue);
+                    const neededCO2 = Math.max(0, targetCO2Value - residualCO2);
+                    dosingRate = (neededCO2 * 1) / 0.495; // For 1 liter
+                    dosingRate = Math.round(dosingRate * 10) / 10;
                   }
 
                   return (
-                    <div className="p-6 bg-[#FFBF00]/10 border border-[#FFBF00] rounded-lg">
-                      <h3 className="text-lg font-bold mb-3 text-[#FFBF00]">Result:</h3>
+                    <div className="bg-[#FFBF00]/10 p-6 rounded-lg border border-[#FFBF00]">
+                      <h3 className="text-[#FFBF00] font-bold uppercase text-xs tracking-wider mb-4 text-center">Ergebnis</h3>
                       {result.sugar && (
-                        <p className="text-2xl font-bold text-center">
-                          Mix <span className="text-[#FFBF00]">{result.sugar.toFixed(0)}g</span> sugar
-                          in some water and add to bottling bucket.
-                        </p>
+                        <div className="space-y-3">
+                          {/* Hauptwert: Total für den Batch */}
+                          <div className="text-3xl font-bold text-white text-center">
+                            {result.sugar.toFixed(1)}g <span className="text-sm font-normal text-muted-foreground">Total</span>
+                          </div>
+                          {/* Dosierrate */}
+                          <div className="flex justify-center items-center gap-2 text-sm">
+                            <span className="text-zinc-400">Dosierrate:</span>
+                            <span className="font-mono font-bold text-[#FFBF00] bg-zinc-900 px-2 py-0.5 rounded border border-zinc-700">
+                              {dosingRate?.toFixed(1)} g/L
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-500 mt-2 text-center">
+                            In kochendem Wasser auflösen und im Abfülleimer vorlegen.
+                          </p>
+                        </div>
                       )}
                       {result.dextrose && (
-                        <p className="text-2xl font-bold text-center">
-                          Mix <span className="text-[#FFBF00]">{result.dextrose.toFixed(0)}g</span>{" "}
-                          dextrose in some water and add to bottling bucket.
-                        </p>
-                      )}
-                      {result.speise && (
-                        <p className="text-2xl font-bold text-center">
-                          Add <span className="text-[#FFBF00]">{result.speise.toFixed(2)}L</span> speise
-                          to bottling bucket.
-                        </p>
+                        <div className="space-y-3">
+                          {/* Hauptwert: Total für den Batch */}
+                          <div className="text-3xl font-bold text-white text-center">
+                            {result.dextrose.toFixed(1)}g <span className="text-sm font-normal text-muted-foreground">Total</span>
+                          </div>
+                          {/* Dosierrate */}
+                          <div className="flex justify-center items-center gap-2 text-sm">
+                            <span className="text-zinc-400">Dosierrate:</span>
+                            <span className="font-mono font-bold text-[#FFBF00] bg-zinc-900 px-2 py-0.5 rounded border border-zinc-700">
+                              {dosingRate?.toFixed(1)} g/L
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-500 mt-2 text-center">
+                            In kochendem Wasser auflösen und im Abfülleimer vorlegen.
+                          </p>
+                        </div>
                       )}
                       {result.drops && (
-                        <p className="text-2xl font-bold text-center">
-                          Use <span className="text-[#FFBF00]">{result.drops}</span> carbonation drops
-                          (1 per 330ml bottle).
-                        </p>
+                        <div className="space-y-3">
+                          <div className="text-3xl font-bold text-white text-center">
+                            <span className="text-[#FFBF00]">{result.drops}</span> <span className="text-sm font-normal text-muted-foreground">Drops</span>
+                          </div>
+                          <p className="text-sm text-zinc-400 text-center">
+                            (1 per 330ml bottle)
+                          </p>
+                        </div>
                       )}
                     </div>
                   );
@@ -726,25 +791,39 @@ export default function RecipeDetailPage() {
                 onClick={async () => {
                   if (!user || !activeBatch) return;
                   try {
+                    // Helper: Calculate residual CO2 based on temperature (in g/L)
+                    const getResidualCO2 = (tempC: number): number => {
+                      return 1.57 * Math.pow(0.97, tempC);
+                    };
+
+                    // Calculate sugar needed for carbonation
+                    const calculateSugar = (
+                      volumeL: number,
+                      tempC: number,
+                      targetCO2gL: number
+                    ): number => {
+                      const residualCO2 = getResidualCO2(tempC);
+                      const neededCO2 = Math.max(0, targetCO2gL - residualCO2);
+                      const sugarNeededGrams = (neededCO2 * volumeL) / 0.495;
+                      return Math.round(sugarNeededGrams * 10) / 10;
+                    };
+
                     const targetCO2Value = parseFloat(targetCO2) || 2.4;
-                    const volumeValue =
-                      parseFloat(bottlingVolume) || activeBatch.brewLog?.measuredVolume || 20;
                     const tempValue = parseFloat(beerTemp) || 20;
-                    const restCO2 =
-                      3.0378 - 0.05007 * tempValue + 0.00026555 * tempValue * tempValue;
-                    const neededCO2 = targetCO2Value - restCO2;
+                    // CRITICAL: Use bottlingVolume from input field
+                    const volumeValue = parseFloat(bottlingVolume) || 20;
 
                     let carbonationAmount = 0;
-                    if (carbonationType === "speise") {
-                      const measuredOGValue = activeBatch.brewLog?.measuredOG || 1.050;
-                      const extractPlato = (measuredOGValue - 1) * 250;
-                      carbonationAmount = (neededCO2 * volumeValue) / (extractPlato * 0.5);
-                    } else if (carbonationType === "dextrose") {
-                      carbonationAmount = (neededCO2 * volumeValue * 4) / 1.15;
+                    if (carbonationType === "dextrose") {
+                      const residualCO2 = getResidualCO2(tempValue);
+                      const neededCO2 = Math.max(0, targetCO2Value - residualCO2);
+                      carbonationAmount = (neededCO2 * volumeValue) / 0.5;
+                      carbonationAmount = Math.round(carbonationAmount * 10) / 10;
                     } else if (carbonationType === "drops") {
                       carbonationAmount = Math.ceil((volumeValue * 1000) / 330);
                     } else {
-                      carbonationAmount = neededCO2 * volumeValue * 4;
+                      // Default: Household Sugar (Sucrose)
+                      carbonationAmount = calculateSugar(volumeValue, tempValue, targetCO2Value);
                     }
 
                     await updateBatch(user.uid, recipeId, activeBatch.id, {

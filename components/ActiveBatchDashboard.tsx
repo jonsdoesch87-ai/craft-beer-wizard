@@ -105,9 +105,13 @@ export function ActiveBatchDashboard({
 
   const allStepsCompleted =
     recipe?.fermentationSchedule &&
+    recipe.fermentationSchedule.length > 0 &&
     recipe.fermentationSchedule.every((step) =>
       batch.fermentationHistory?.some((h) => h.day === step.day && h.type === step.type)
     );
+  
+  // If there's no fermentation schedule, allow bottling (standard fermentation)
+  const canBottle = !recipe?.fermentationSchedule || recipe.fermentationSchedule.length === 0 || allStepsCompleted;
 
   // Ermittle die Einheit basierend auf den Daten
   const measurements = batch.measurements || [];
@@ -524,7 +528,7 @@ export function ActiveBatchDashboard({
 
         {/* Ready to Bottle Button - Only show for active (non-completed) batches */}
         {batch.status !== "completed" &&
-          allStepsCompleted && (
+          canBottle && (
             <Button
               onClick={onBottlingClick}
               className="w-full bg-[#4CBB17] text-white hover:bg-[#4CBB17]/90 text-lg py-6"

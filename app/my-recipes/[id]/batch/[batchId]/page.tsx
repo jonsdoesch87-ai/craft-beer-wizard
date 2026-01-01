@@ -38,6 +38,8 @@ export default function BatchDetailPage() {
   const [beerTemp, setBeerTemp] = useState("20");
   const [bottlingVolume, setBottlingVolume] = useState("");
   const [finalFG, setFinalFG] = useState("");
+  const [gravityUnit, setGravityUnit] = useState<"sg" | "plato" | "brix">("sg");
+  const [displayGravity, setDisplayGravity] = useState<string>("");
   const [carbonationType, setCarbonationType] = useState<
     "sugar" | "dextrose" | "speise" | "drops" | "spunding"
   >("sugar");
@@ -81,11 +83,18 @@ export default function BatchDetailPage() {
       setRecipe(recipeData);
       setBatch(batchData);
 
+      // Initialize bottling volume with measured volume (fallback to 20L if not set)
       if (batchData.brewLog?.measuredVolume) {
         setBottlingVolume(batchData.brewLog.measuredVolume.toString());
+      } else {
+        // Default to 20L if no measured volume
+        setBottlingVolume("20");
       }
       if (batchData.brewLog?.measuredFG) {
-        setFinalFG(batchData.brewLog.measuredFG.toString());
+        const fgValue = batchData.brewLog.measuredFG;
+        setFinalFG(fgValue.toString());
+        // Initialize displayGravity in default unit (SG)
+        setDisplayGravity(fgValue.toString());
       }
 
       // If batch is in "brewing" status, redirect to brew session page
@@ -198,14 +207,86 @@ export default function BatchDetailPage() {
             <div className="space-y-4 py-4">
               {/* Final Gravity Input - Required for completion */}
               <div className="space-y-2">
-                <Label>Final Gravity (SG) - Required</Label>
+                {/* Unit Selector */}
+                <div className="flex justify-between items-end mb-2">
+                  <Label>Final Gravity ({gravityUnit.toUpperCase()}) - Required</Label>
+                  <div className="flex bg-zinc-900 rounded-md border border-zinc-800 p-0.5">
+                    {(["sg", "plato", "brix"] as const).map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => {
+                          // Convert current value to SG first
+                          const currentValue = parseFloat(displayGravity) || 0;
+                          if (currentValue > 0) {
+                            let currentSG: number;
+                            if (gravityUnit === "sg") {
+                              currentSG = currentValue;
+                            } else {
+                              // Plato/Brix to SG
+                              currentSG = 1 + (currentValue / 250);
+                            }
+                            
+                            // Convert SG to target unit
+                            let newValue: number;
+                            if (u === "sg") {
+                              newValue = currentSG;
+                            } else {
+                              // SG to Plato/Brix
+                              newValue = (currentSG - 1) * 250;
+                            }
+                            
+                            setDisplayGravity(newValue.toFixed(u === "sg" ? 3 : 1));
+                          }
+                          setGravityUnit(u);
+                        }}
+                        className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                          gravityUnit === u 
+                            ? "bg-[#FFBF00] text-black font-bold" 
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        {u === "sg" ? "SG" : u === "plato" ? "°P" : "Bx"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Input
-                  type="text"
-                  placeholder="e.g. 1.012"
-                  value={finalFG}
-                  onChange={(e) => setFinalFG(e.target.value)}
+                  type="number"
+                  step={gravityUnit === "sg" ? "0.001" : "0.1"}
+                  placeholder={gravityUnit === "sg" ? "e.g. 1.012" : gravityUnit === "plato" ? "e.g. 3.0" : "e.g. 3.0"}
+                  value={displayGravity}
+                  onChange={(e) => {
+                    setDisplayGravity(e.target.value);
+                    // Update finalFG for backwards compatibility (always store as SG)
+                    const value = parseFloat(e.target.value) || 0;
+                    if (value > 0) {
+                      let sgValue: number;
+                      if (gravityUnit === "sg") {
+                        sgValue = value;
+                      } else {
+                        // Plato/Brix to SG
+                        sgValue = 1 + (value / 250);
+                      }
+                      setFinalFG(sgValue.toFixed(3));
+                    } else {
+                      setFinalFG("");
+                    }
+                  }}
                   className="bg-zinc-800 border-zinc-700"
                 />
+                {(() => {
+                  const value = parseFloat(displayGravity) || 0;
+                  if (value > 0 && gravityUnit !== "sg") {
+                    const sgValue = 1 + (value / 250);
+                    return (
+                      <p className="text-xs text-zinc-500 mt-1">
+                        Converted: <span className="text-[#FFBF00]">{sgValue.toFixed(3)} SG</span>
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
                 <p className="text-xs text-muted-foreground">
                   Enter the final gravity before bottling
                 </p>
@@ -286,8 +367,8 @@ export default function BatchDetailPage() {
                     <SelectContent>
                       <SelectItem value="sugar">Household Sugar (Sucrose)</SelectItem>
                       <SelectItem value="dextrose">Dextrose (Glucose)</SelectItem>
-                      <SelectItem value="speise">Speise (Gyle)</SelectItem>
                       <SelectItem value="drops">Carbonation Drops</SelectItem>
+                      <SelectItem value="speise" disabled>Speise (Gyle) - Experimental</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -297,74 +378,109 @@ export default function BatchDetailPage() {
               {carbonationMethod === "priming" &&
                 batch &&
                 (() => {
-                  const targetCO2Value = parseFloat(targetCO2) || 2.4;
+                  // Helper: Calculate residual CO2 based on temperature (in g/L)
+                  // Vereinfachte Näherung für Hobbybrauer
+                  const getResidualCO2 = (tempC: number): number => {
+                    return 1.57 * Math.pow(0.97, tempC);
+                  };
+
+                  // Calculate sugar needed for carbonation
+                  const calculateSugar = (
+                    volumeL: number,
+                    tempC: number,
+                    targetCO2gL: number
+                  ): number => {
+                    const residualCO2 = getResidualCO2(tempC);
+                    const neededCO2 = Math.max(0, targetCO2gL - residualCO2);
+                    // 1g Haushaltszucker (Saccharose) erzeugt ca. 0.495g CO2
+                    const sugarNeededGrams = (neededCO2 * volumeL) / 0.495;
+                    return Math.round(sugarNeededGrams * 10) / 10; // Auf 1 Dezimalstelle runden
+                  };
+
+                  const targetCO2Value = parseFloat(targetCO2) || 5.0;
                   const tempValue = parseFloat(beerTemp) || 20;
-                  const volumeValue =
-                    parseFloat(bottlingVolume) || batch.brewLog?.measuredVolume || 20;
-                  const restCO2 =
-                    3.0378 - 0.05007 * tempValue + 0.00026555 * tempValue * tempValue;
-                  const neededCO2 = targetCO2Value - restCO2;
+                  // CRITICAL: Use bottlingVolume from input field (user can modify)
+                  const volumeValue = parseFloat(bottlingVolume) || 20;
 
                   let result: {
                     sugar?: number;
                     dextrose?: number;
-                    speise?: number;
                     drops?: number;
                   } = {};
 
-                  if (carbonationType === "speise") {
-                    const measuredOGValue = batch.brewLog?.measuredOG || 1.050;
-                    const extractPlato = (measuredOGValue - 1) * 250;
-                    const speiseNeeded = (neededCO2 * volumeValue) / (extractPlato * 0.5);
-                    result.speise = speiseNeeded;
-                    // Also calculate sugar equivalent for display
-                    result.sugar = neededCO2 * volumeValue * 4;
-                  } else if (carbonationType === "dextrose") {
-                    const sugarNeeded = (neededCO2 * volumeValue * 4) / 1.15;
-                    result.dextrose = sugarNeeded;
+                  // Calculate dosing rate (per liter, independent of total volume)
+                  let dosingRate: number | null = null;
+
+                  if (carbonationType === "dextrose") {
+                    // Dextrose (Glucose) erzeugt etwas weniger CO2, Faktor 0.5 statt 0.495
+                    const residualCO2 = getResidualCO2(tempValue);
+                    const neededCO2 = Math.max(0, targetCO2Value - residualCO2);
+                    const dextroseNeeded = (neededCO2 * volumeValue) / 0.5;
+                    result.dextrose = Math.round(dextroseNeeded * 10) / 10;
+                    // Calculate dosing rate: per liter
+                    dosingRate = (neededCO2 * 1) / 0.5; // For 1 liter
+                    dosingRate = Math.round(dosingRate * 10) / 10;
                   } else if (carbonationType === "drops") {
                     const bottles = (volumeValue * 1000) / 330;
                     result.drops = Math.ceil(bottles);
                   } else {
-                    const sugarNeeded = neededCO2 * volumeValue * 4;
-                    result.sugar = sugarNeeded;
-                    // Also calculate speise equivalent if we have OG
-                    if (batch.brewLog?.measuredOG) {
-                      const measuredOGValue = batch.brewLog.measuredOG;
-                      const extractPlato = (measuredOGValue - 1) * 250;
-                      result.speise = (neededCO2 * volumeValue) / (extractPlato * 0.5);
-                    }
+                    // Default: Household Sugar (Sucrose)
+                    result.sugar = calculateSugar(volumeValue, tempValue, targetCO2Value);
+                    // Calculate dosing rate: per liter (calculate for 1L directly for precision)
+                    const residualCO2 = getResidualCO2(tempValue);
+                    const neededCO2 = Math.max(0, targetCO2Value - residualCO2);
+                    dosingRate = (neededCO2 * 1) / 0.495; // For 1 liter
+                    dosingRate = Math.round(dosingRate * 10) / 10;
                   }
 
                   return (
-                    <div className="p-6 bg-[#FFBF00]/10 border border-[#FFBF00] rounded-lg">
-                      <h3 className="text-lg font-bold mb-3 text-[#FFBF00]">Result:</h3>
+                    <div className="bg-[#FFBF00]/10 p-6 rounded-lg border border-[#FFBF00]">
+                      <h3 className="text-[#FFBF00] font-bold uppercase text-xs tracking-wider mb-4 text-center">Ergebnis</h3>
                       {result.sugar && (
-                        <p className="text-2xl font-bold text-center">
-                          Add <span className="text-[#FFBF00]">{result.sugar.toFixed(0)}g</span> sugar
-                        </p>
+                        <div className="space-y-3">
+                          {/* Hauptwert: Total für den Batch */}
+                          <div className="text-3xl font-bold text-white text-center">
+                            {result.sugar.toFixed(1)}g <span className="text-sm font-normal text-muted-foreground">Total</span>
+                          </div>
+                          {/* Dosierrate */}
+                          <div className="flex justify-center items-center gap-2 text-sm">
+                            <span className="text-zinc-400">Dosierrate:</span>
+                            <span className="font-mono font-bold text-[#FFBF00] bg-zinc-900 px-2 py-0.5 rounded border border-zinc-700">
+                              {dosingRate?.toFixed(1)} g/L
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-500 mt-2 text-center">
+                            In kochendem Wasser auflösen und im Abfülleimer vorlegen.
+                          </p>
+                        </div>
                       )}
                       {result.dextrose && (
-                        <p className="text-2xl font-bold text-center">
-                          Add <span className="text-[#FFBF00]">{result.dextrose.toFixed(0)}g</span>{" "}
-                          dextrose
-                        </p>
-                      )}
-                      {result.speise && (
-                        <p className="text-2xl font-bold text-center">
-                          Add <span className="text-[#FFBF00]">{result.speise.toFixed(2)}L</span> speise
-                        </p>
+                        <div className="space-y-3">
+                          {/* Hauptwert: Total für den Batch */}
+                          <div className="text-3xl font-bold text-white text-center">
+                            {result.dextrose.toFixed(1)}g <span className="text-sm font-normal text-muted-foreground">Total</span>
+                          </div>
+                          {/* Dosierrate */}
+                          <div className="flex justify-center items-center gap-2 text-sm">
+                            <span className="text-zinc-400">Dosierrate:</span>
+                            <span className="font-mono font-bold text-[#FFBF00] bg-zinc-900 px-2 py-0.5 rounded border border-zinc-700">
+                              {dosingRate?.toFixed(1)} g/L
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-500 mt-2 text-center">
+                            In kochendem Wasser auflösen und im Abfülleimer vorlegen.
+                          </p>
+                        </div>
                       )}
                       {result.drops && (
-                        <p className="text-2xl font-bold text-center">
-                          Use <span className="text-[#FFBF00]">{result.drops}</span> carbonation drops
-                          (1 per 330ml bottle).
-                        </p>
-                      )}
-                      {carbonationType === "sugar" && result.sugar && result.speise && (
-                        <p className="text-lg text-center mt-2 text-muted-foreground">
-                          OR {result.speise.toFixed(2)}L Speise
-                        </p>
+                        <div className="space-y-3">
+                          <div className="text-3xl font-bold text-white text-center">
+                            <span className="text-[#FFBF00]">{result.drops}</span> <span className="text-sm font-normal text-muted-foreground">Drops</span>
+                          </div>
+                          <p className="text-sm text-zinc-400 text-center">
+                            (1 per 330ml bottle)
+                          </p>
+                        </div>
                       )}
                     </div>
                   );
@@ -391,29 +507,46 @@ export default function BatchDetailPage() {
                   }
 
                   try {
+                    // Helper: Calculate residual CO2 based on temperature (in g/L)
+                    const getResidualCO2 = (tempC: number): number => {
+                      return 1.57 * Math.pow(0.97, tempC);
+                    };
+
+                    // Calculate sugar needed for carbonation
+                    const calculateSugar = (
+                      volumeL: number,
+                      tempC: number,
+                      targetCO2gL: number
+                    ): number => {
+                      const residualCO2 = getResidualCO2(tempC);
+                      const neededCO2 = Math.max(0, targetCO2gL - residualCO2);
+                      const sugarNeededGrams = (neededCO2 * volumeL) / 0.495;
+                      return Math.round(sugarNeededGrams * 10) / 10;
+                    };
+
                     const targetCO2Value = parseFloat(targetCO2) || 5.0;
-                    const volumeValue =
-                      parseFloat(bottlingVolume) || batch.brewLog?.measuredVolume || 20;
                     const tempValue = parseFloat(beerTemp) || 20;
-                    const restCO2 =
-                      3.0378 - 0.05007 * tempValue + 0.00026555 * tempValue * tempValue;
-                    const neededCO2 = targetCO2Value - restCO2;
+                    // CRITICAL: Use bottlingVolume from input field
+                    const volumeValue = parseFloat(bottlingVolume) || 20;
 
                     let carbonationAmount = 0;
-                    if (carbonationType === "speise") {
-                      const measuredOGValue = batch.brewLog?.measuredOG || 1.050;
-                      const extractPlato = (measuredOGValue - 1) * 250;
-                      carbonationAmount = (neededCO2 * volumeValue) / (extractPlato * 0.5);
-                    } else if (carbonationType === "dextrose") {
-                      carbonationAmount = (neededCO2 * volumeValue * 4) / 1.15;
+                    if (carbonationType === "dextrose") {
+                      const residualCO2 = getResidualCO2(tempValue);
+                      const neededCO2 = Math.max(0, targetCO2Value - residualCO2);
+                      carbonationAmount = (neededCO2 * volumeValue) / 0.5;
+                      carbonationAmount = Math.round(carbonationAmount * 10) / 10;
                     } else if (carbonationType === "drops") {
                       carbonationAmount = Math.ceil((volumeValue * 1000) / 330);
                     } else {
-                      carbonationAmount = neededCO2 * volumeValue * 4;
+                      // Default: Household Sugar (Sucrose)
+                      carbonationAmount = calculateSugar(volumeValue, tempValue, targetCO2Value);
                     }
 
+                    const { serverTimestamp } = await import("firebase/firestore");
+                    
                     await updateBatch(user.uid, recipeId, batch.id, {
-                      status: "conditioning",
+                      status: "completed",
+                      completedAt: serverTimestamp() as any,
                       carbonationMethod: carbonationMethod,
                       brewLog: {
                         ...batch.brewLog,
@@ -430,10 +563,11 @@ export default function BatchDetailPage() {
                         bottlingDate: new Date() as any,
                       },
                     });
-                    toast.success("Bottling completed! Batch moved to conditioning.");
+                    toast.success("Batch completed! Redirecting to brew report...");
                     setShowBottlingWizard(false);
-                    setShowRatingModal(true);
                     await handleBatchUpdate();
+                    // Redirect to brew report
+                    router.push(`/batch/report/${batch.id}?recipeId=${recipeId}`);
                   } catch (error) {
                     toast.error("Error saving");
                   }
@@ -494,19 +628,21 @@ export default function BatchDetailPage() {
                 onClick={async () => {
                   if (!user || !batch) return;
                   try {
+                    const { serverTimestamp } = await import("firebase/firestore");
+                    
                     await updateBatch(user.uid, recipeId, batch.id, {
                       status: "completed",
                       rating: rating > 0 ? rating : undefined,
                       reviewNotes: reviewNotes || undefined,
-                      completedAt: new Date() as any,
+                      completedAt: serverTimestamp() as any,
                     });
                     toast.success("Review saved! Batch completed.");
                     setShowRatingModal(false);
                     setRating(0);
                     setReviewNotes("");
                     await handleBatchUpdate();
-                    // Redirect back to recipe page after completion
-                    router.push(`/my-recipes/${recipeId}`);
+                    // Redirect to brew report
+                    router.push(`/batch/report/${batch.id}?recipeId=${recipeId}`);
                   } catch (error) {
                     toast.error("Error saving review");
                   }

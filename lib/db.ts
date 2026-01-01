@@ -130,6 +130,7 @@ export interface RecipeData {
   parentRecipeId?: string; // For versioning: points to original recipe
   originalAuthorId?: string; // For cloned recipes
   originalPublicRecipeId?: string; // For cloned recipes from community
+  isPublic?: boolean; // Whether this recipe is publicly shareable
 }
 
 export interface UserProfile {
@@ -256,18 +257,68 @@ export async function getUserRecipes(userId: string): Promise<(RecipeData & { id
 
 export async function getRecipe(userId: string, recipeId: string): Promise<(RecipeData & { id: string }) | null> {
   try {
+    // DEBUG LOG HINZUFÜGEN:
+    console.log(`[DB CHECK] Versuche Rezept zu laden:`);
+    console.log(`- Pfad: users/${userId}/recipes/${recipeId}`);
+    console.log(`- userId Parameter: ${userId}`);
+    console.log(`- recipeId Parameter: ${recipeId}`);
+    
     const recipeRef = doc(db, "users", userId, "recipes", recipeId);
     const recipeSnap = await getDoc(recipeRef);
 
-    if (recipeSnap.exists()) {
+    if (!recipeSnap.exists()) {
+      console.error(`[DB ERROR] Dokument existiert nicht unter: users/${userId}/recipes/${recipeId}`);
+      return null;
+    }
+    
+    console.log(`[DB SUCCESS] Dokument gefunden unter: users/${userId}/recipes/${recipeId}`);
+    return {
+      id: recipeSnap.id,
+      ...(recipeSnap.data() as RecipeData),
+    };
+  } catch (error) {
+    console.error(`[DB ERROR] Fehler beim Laden des Rezepts von users/${userId}/recipes/${recipeId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get a shared recipe by userId and recipeId
+ * This function allows reading recipes that are marked as isPublic: true
+ * Note: Firestore Security Rules must allow read access for public recipes
+ */
+export async function getSharedRecipe(userId: string, recipeId: string): Promise<(RecipeData & { id: string }) | null> {
+  try {
+    // DEBUG LOG HINZUFÜGEN:
+    console.log(`[DB CHECK - SHARED] Versuche geteiltes Rezept zu laden:`);
+    console.log(`- Pfad: users/${userId}/recipes/${recipeId}`);
+    console.log(`- userId Parameter (Owner): ${userId}`);
+    console.log(`- recipeId Parameter: ${recipeId}`);
+    
+    const recipeRef = doc(db, "users", userId, "recipes", recipeId);
+    const recipeSnap = await getDoc(recipeRef);
+
+    if (!recipeSnap.exists()) {
+      console.error(`[DB ERROR - SHARED] Dokument existiert nicht unter: users/${userId}/recipes/${recipeId}`);
+      return null;
+    }
+    
+    const data = recipeSnap.data() as RecipeData;
+    console.log(`[DB CHECK - SHARED] Dokument gefunden. isPublic Status: ${data.isPublic}`);
+    
+    // Only return if recipe is public
+    if (data.isPublic === true) {
+      console.log(`[DB SUCCESS - SHARED] Rezept ist öffentlich und wird zurückgegeben.`);
       return {
         id: recipeSnap.id,
-        ...(recipeSnap.data() as RecipeData),
+        ...data,
       };
     }
-    return null;
+    
+    console.log(`[DB ERROR - SHARED] Rezept ist nicht öffentlich (isPublic: ${data.isPublic})`);
+    return null; // Recipe is private
   } catch (error) {
-    console.error("Error fetching recipe:", error);
+    console.error(`[DB ERROR - SHARED] Fehler beim Laden des geteilten Rezepts von users/${userId}/recipes/${recipeId}:`, error);
     throw error;
   }
 }
@@ -306,6 +357,22 @@ export async function updateRecipe(
     });
   } catch (error) {
     console.error("Error updating recipe:", error);
+    throw error;
+  }
+}
+
+/**
+ * Set recipe visibility (public/private)
+ */
+export async function setRecipeVisibility(userId: string, recipeId: string, isPublic: boolean): Promise<void> {
+  try {
+    const recipeRef = doc(db, "users", userId, "recipes", recipeId);
+    await updateDoc(recipeRef, {
+      isPublic,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error("Error updating recipe visibility:", error);
     throw error;
   }
 }
