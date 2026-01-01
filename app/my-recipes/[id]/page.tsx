@@ -121,7 +121,13 @@ export default function RecipeDetailPage() {
         setRecipe(recipeData);
       } else {
         console.error(`[PAGE LOAD ALL DATA] Rezept nicht gefunden für: users/${user.uid}/recipes/${recipeId}`);
-        toast.error("Recipe not found");
+        console.warn(`[PAGE LOAD ALL DATA] HINWEIS: Dies könnte ein geteiltes Rezept sein. Share-Links sollten das Format /view/[userId]/[recipeId] verwenden.`);
+        
+        // Show helpful error message
+        toast.error(
+          "Rezept nicht gefunden. Wenn dies ein geteiltes Rezept ist, verwende bitte den Share-Link mit /view/[userId]/[recipeId]",
+          { duration: 5000 }
+        );
         router.push("/my-recipes");
         return;
       }

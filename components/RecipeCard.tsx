@@ -236,12 +236,19 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
     }
 
     try {
+      // DEBUG: Log share attempt
+      console.log(`[SHARE] Share-Button geklickt:`);
+      console.log(`- userId (Owner): ${userId}`);
+      console.log(`- recipeId: ${recipeId}`);
+      console.log(`- user.uid (current user): ${user.uid}`);
+      
       // 1. Set recipe to public
       await setRecipeVisibility(userId, recipeId, true);
       setIsPublic(true);
       
-      // 2. Generate share URL with both IDs
+      // 2. Generate share URL with both IDs (userId = Owner ID!)
       const shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
+      console.log(`[SHARE] Generierter Share-Link: ${shareUrl}`);
       
       // 3. Try native share first
       if (navigator.share) {
@@ -261,6 +268,7 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
       
       // 4. Fallback: Copy to clipboard
       await navigator.clipboard.writeText(shareUrl);
+      console.log(`[SHARE] Link in Zwischenablage kopiert: ${shareUrl}`);
       toast.success("Public link copied to clipboard! 🌍");
     } catch (error) {
       console.error("Error sharing recipe:", error);
@@ -535,12 +543,16 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                         if (!recipe) return;
                         
                         // Build share URL: /view/[userId]/[recipeId]
+                        // IMPORTANT: userId must be the Owner ID, not the viewer ID!
+                        console.log(`[SHARE DROPDOWN - WhatsApp] userId=${userId}, recipeId=${recipeId}, isPublic=${isPublic}`);
                         let shareUrl: string;
                         if (isPublic && userId && recipeId) {
                           shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
+                          console.log(`[SHARE DROPDOWN - WhatsApp] Generated share URL: ${shareUrl}`);
                         } else {
                           // Fallback: Private Link (only if not public)
                           shareUrl = window.location.href;
+                          console.warn(`[SHARE DROPDOWN - WhatsApp] Recipe not public, using current URL: ${shareUrl}`);
                           toast.info("Make recipe public first to share it!");
                         }
                         
@@ -571,12 +583,16 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                         if (!recipe) return;
                         
                         // Build share URL: /view/[userId]/[recipeId]
+                        // IMPORTANT: userId must be the Owner ID, not the viewer ID!
+                        console.log(`[SHARE DROPDOWN - Email] userId=${userId}, recipeId=${recipeId}, isPublic=${isPublic}`);
                         let shareUrl: string;
                         if (isPublic && userId && recipeId) {
                           shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
+                          console.log(`[SHARE DROPDOWN - Email] Generated share URL: ${shareUrl}`);
                         } else {
                           // Fallback: Private Link
                           shareUrl = window.location.href;
+                          console.warn(`[SHARE DROPDOWN - Email] Recipe not public, using current URL: ${shareUrl}`);
                           toast.info("Make recipe public first to share it!");
                         }
                         
@@ -590,16 +606,21 @@ export function RecipeCard({ recipe, units, recipeId, userId }: RecipeCardProps)
                     <DropdownMenuItem 
                       onClick={async () => {
                         // Build share URL: /view/[userId]/[recipeId]
+                        // IMPORTANT: userId must be the Owner ID, not the viewer ID!
+                        console.log(`[SHARE DROPDOWN - Copy Link] userId=${userId}, recipeId=${recipeId}, isPublic=${isPublic}`);
                         let shareUrl: string;
                         if (isPublic && userId && recipeId) {
                           shareUrl = `${window.location.origin}/view/${userId}/${recipeId}`;
+                          console.log(`[SHARE DROPDOWN - Copy Link] Generated share URL: ${shareUrl}`);
                         } else {
                           // Fallback: Private Link
                           shareUrl = window.location.href;
+                          console.warn(`[SHARE DROPDOWN - Copy Link] Recipe not public, using current URL: ${shareUrl}`);
                         }
                         
                         try {
                           await navigator.clipboard.writeText(shareUrl);
+                          console.log(`[SHARE DROPDOWN - Copy Link] Link copied to clipboard: ${shareUrl}`);
                           if (isPublic && userId && recipeId) {
                             toast.success("Public link copied! Ready to share 🌍");
                           } else {

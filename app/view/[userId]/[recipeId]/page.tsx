@@ -155,7 +155,7 @@ export default function SharedRecipePage() {
         </div>
         
         {/* Recipe Card - Read Only */}
-        <RecipeCard recipe={recipeForCard as any} units="metric" />
+        <RecipeCard recipe={recipeForCard as any} units="metric" recipeId={recipeId} userId={ownerId} />
         
         <div className="text-center pt-8 pb-4 text-zinc-500 text-sm">
           Powered by Craft Beer Wizard 🧙‍♂️
